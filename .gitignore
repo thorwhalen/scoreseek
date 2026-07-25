@@ -11,3 +11,4 @@ coverage.xml
 *.abc
 *.wav
 scrap/
+.claude/
