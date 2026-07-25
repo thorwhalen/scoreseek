@@ -5,9 +5,9 @@ Find a musical **score** by metadata — across many sources, behind one call.
 ```python
 import scoreseek
 
-hits = scoreseek.search("Cooley's")   # out of the box: The Session (CC-BY-SA)
+hits = scoreseek.search("Cooley's")  # out of the box: The Session (CC-BY-SA)
 ref = hits[0]
-path = ref.fetch()                    # -> a local .abc file
+path = ref.fetch()  # -> a local .abc file
 # hand straight to audiate.render(path) to hear it
 ```
 
@@ -48,7 +48,7 @@ from scoreseek.sources import LocalFolderSource
 register_source(LocalFolderSource("~/scores", license=License.PUBLIC_DOMAIN))
 
 hits = scoreseek.search("prelude", sources=["local"])
-hits = scoreseek.search("hey jude", allow_copyrighted=True)   # opt into gray/copyrighted
+hits = scoreseek.search("hey jude", allow_copyrighted=True)  # opt into gray/copyrighted
 ```
 
 ### Write your own source
@@ -56,6 +56,7 @@ hits = scoreseek.search("hey jude", allow_copyrighted=True)   # opt into gray/co
 ```python
 from scoreseek.sources import Source
 from scoreseek.base import License
+
 
 class MySource(Source):
     name = "mine"
