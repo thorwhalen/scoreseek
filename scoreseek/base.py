@@ -30,8 +30,18 @@ class License(str, Enum):
 #: License tags safe to build products on (redistribution + commercial, w/ attribution).
 COMMERCIAL_SAFE = frozenset({License.PUBLIC_DOMAIN, License.CC0, License.PERMISSIVE})
 
-#: License tags that are copyrighted or gray -- gated behind ``allow_copyrighted``.
-RESTRICTED = frozenset({License.COPYRIGHTED, License.GRAY})
+#: License tags gated behind ``allow_copyrighted=True``: copyrighted, scraped/gray,
+#: AND non-commercial (CC-BY-NC). Non-commercial is included because the default
+#: "safe" search is about what you can freely *build products on*, and NC content
+#: carries a real usage restriction -- so it belongs in the opt-in lane alongside
+#: copyrighted/gray, not in the default results.
+RESTRICTED = frozenset({License.COPYRIGHTED, License.GRAY, License.NONCOMMERCIAL})
+
+#: Shown by default (``allow_copyrighted=False``): the commercial-safe lanes plus
+#: ``UNKNOWN`` -- unclassified provenance (e.g. your own local folders) is *your*
+#: content, so it is not hidden, whereas a *known* restriction (NC/copyright/gray)
+#: is respected by the safe default.
+DEFAULT_VISIBLE = COMMERCIAL_SAFE | frozenset({License.UNKNOWN})
 
 
 @dataclass

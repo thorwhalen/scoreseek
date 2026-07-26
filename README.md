@@ -35,21 +35,58 @@ copyrighted material explicitly.
 A *source* answers `search(query) -> [ScoreRef]` and optionally `fetch(ref) -> path`.
 Register any object with that shape.
 
-| Source | What | License | Status |
+**On by default** (zero-config, lightweight, cleanly licensed):
+
+| Source | What | License |
+|---|---|---|
+| `thesession` | thesession.org traditional tunes (ABC) | CC-BY-SA 4.0 |
+| `openscore_lieder` | ~1,356 OpenScore art songs (compressed MusicXML) | CC0 |
+
+**Opt-in** (import from `scoreseek.sources` and `register_source(...)` — heavier, or license-gated):
+
+| Source | What | License | Notes |
 |---|---|---|---|
-| `thesession` | thesession.org traditional tunes (ABC) | CC-BY-SA 4.0 | **built in, on by default** |
-| `LocalFolderSource` | a folder of `.mid`/MusicXML/ABC/`kern` files | you set it | built in |
-| PDMX · OpenScore Lieder · IMSLP · MusicBrainz (normalizer) | public-domain / CC0 corpora + APIs | PD/CC0 | planned |
+| `IMSLPSource` | IMSLP/Petrucci public-domain classical | Public Domain | live API; mostly PDF, some MIDI |
+| `PDMXSource` | 250K Public-Domain MusicXML corpus | PD / CC0 | **local corpus** — one-time download (see below) |
+| `ChordonomiconSource` | 680K chord progressions | CC-BY-NC (gray lane) | no title/artist — genre/chord-text search |
+| `KaggleChordsSource` | 135K chords+lyrics songs (via `sung`) | scraped / gray | needs Kaggle creds + a ~283 MB download |
+| `LocalFolderSource` | a folder of `.mid`/MusicXML/ABC/`kern` files | you set it | offline |
 
 ```python
 from scoreseek import register_source, License
-from scoreseek.sources import LocalFolderSource
+from scoreseek.sources import IMSLPSource, LocalFolderSource
 
+register_source(IMSLPSource())                                   # opt in to IMSLP
 register_source(LocalFolderSource("~/scores", license=License.PUBLIC_DOMAIN))
 
-hits = scoreseek.search("prelude", sources=["local"])
-hits = scoreseek.search("hey jude", allow_copyrighted=True)   # opt into gray/copyrighted
+hits = scoreseek.search("nocturne", composer="Chopin", sources=["imslp"])
+hits = scoreseek.search("hey jude", allow_copyrighted=True)      # opt into gray/copyrighted
 ```
+
+### Canonicalize a messy query (MusicBrainz)
+
+`normalize=True` resolves a fuzzy `"title [+ artist]"` to a canonical work via
+MusicBrainz *before* searching (adds a ~1 s network round-trip), and stamps the
+resolved MBID onto each hit:
+
+```python
+hits = scoreseek.search("moonlight sonata beethovan", normalize=True)
+```
+
+### PDMX: a local public-domain corpus
+
+PDMX ships only as bulk tarballs, so `PDMXSource` searches a local extraction.
+Download once (index-only = 225 MB; + MusicXML = ~2.1 GB) from
+[Zenodo record 15571083](https://zenodo.org/records/15571083) and point the
+source at it:
+
+```python
+from scoreseek.sources import PDMXSource
+register_source(PDMXSource("~/pdmx"))          # dir with PDMX.csv (+ extracted mxl/, mid/)
+```
+
+`search()` works with just `PDMX.csv`; `fetch()` needs the extracted `mxl/`/`mid/`
+trees and otherwise raises with the exact tarball URL to download.
 
 ### Write your own source
 
@@ -73,8 +110,13 @@ class MySource(Source):
 
 `License` classifies each hit: `PUBLIC_DOMAIN`, `CC0`, `PERMISSIVE` (CC-BY/-SA,
 MIT, …), `NONCOMMERCIAL` (CC-BY-NC), `COPYRIGHTED`, `GRAY` (scrapes/unspecified),
-`UNKNOWN`. `search(..., allow_copyrighted=False)` (the default) drops
-`COPYRIGHTED` and `GRAY` hits.
+`UNKNOWN`.
+
+`search(..., allow_copyrighted=False)` (the default) is **copyright-safe**: it
+returns the commercial-safe lanes (`PUBLIC_DOMAIN`/`CC0`/`PERMISSIVE`) plus
+`UNKNOWN` (unclassified provenance, e.g. your own local folders), and drops the
+**restricted lanes** — `COPYRIGHTED`, `GRAY`, and `NONCOMMERCIAL` (a known usage
+restriction). Pass `allow_copyrighted=True` to include them.
 
 ## Where it fits
 
