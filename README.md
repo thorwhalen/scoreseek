@@ -5,9 +5,9 @@ Find a musical **score** by metadata — across many sources, behind one call.
 ```python
 import scoreseek
 
-hits = scoreseek.search("Cooley's")   # out of the box: The Session (CC-BY-SA)
+hits = scoreseek.search("Cooley's")  # out of the box: The Session (CC-BY-SA)
 ref = hits[0]
-path = ref.fetch()                    # -> a local .abc file
+path = ref.fetch()  # -> a local .abc file
 # hand straight to audiate.render(path) to hear it
 ```
 
@@ -56,11 +56,11 @@ Register any object with that shape.
 from scoreseek import register_source, License
 from scoreseek.sources import IMSLPSource, LocalFolderSource
 
-register_source(IMSLPSource())                                   # opt in to IMSLP
+register_source(IMSLPSource())  # opt in to IMSLP
 register_source(LocalFolderSource("~/scores", license=License.PUBLIC_DOMAIN))
 
 hits = scoreseek.search("nocturne", composer="Chopin", sources=["imslp"])
-hits = scoreseek.search("hey jude", allow_copyrighted=True)      # opt into gray/copyrighted
+hits = scoreseek.search("hey jude", allow_copyrighted=True)  # opt into gray/copyrighted
 ```
 
 ### Canonicalize a messy query (MusicBrainz)
@@ -82,7 +82,8 @@ source at it:
 
 ```python
 from scoreseek.sources import PDMXSource
-register_source(PDMXSource("~/pdmx"))          # dir with PDMX.csv (+ extracted mxl/, mid/)
+
+register_source(PDMXSource("~/pdmx"))  # dir with PDMX.csv (+ extracted mxl/, mid/)
 ```
 
 `search()` works with just `PDMX.csv`; `fetch()` needs the extracted `mxl/`/`mid/`
@@ -93,6 +94,7 @@ trees and otherwise raises with the exact tarball URL to download.
 ```python
 from scoreseek.sources import Source
 from scoreseek.base import License
+
 
 class MySource(Source):
     name = "mine"
