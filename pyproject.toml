@@ -6,7 +6,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "scoreseek"
-version = "0.0.1"
+version = "0.0.2"
 description = "Find a musical score by metadata across pluggable sources (APIs, datasets, local folders)"
 readme = "README.md"
 requires-python = ">=3.10"
