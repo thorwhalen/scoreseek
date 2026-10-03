@@ -150,6 +150,12 @@ def search(
     hits: List[ScoreRef] = []
     for name in names:
         source = _registry[name]  # raises KeyError with a helpful message
+        if (
+            not allow_copyrighted
+            and getattr(source, "uniform_license", False)
+            and source.license not in DEFAULT_VISIBLE
+        ):
+            continue  # every hit would be filtered out: don't query (or scrape) it
         try:
             found = source.search(query, title=title, composer=composer, limit=limit)
         except Exception as e:  # a flaky source shouldn't sink the whole search

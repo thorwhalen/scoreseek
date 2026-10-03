@@ -38,6 +38,12 @@ def _artist_title(rel: str):
     return artist, title
 
 
+def _is_safe(rel: str) -> bool:
+    """A relative path that stays inside its root (no absolute, no ``..``)."""
+    p = Path(rel)
+    return not p.is_absolute() and ".." not in p.parts and not rel.startswith(("/", "\\"))
+
+
 class LakhMidiSource(Source):
     """Search the Lakh ``clean_midi`` subset (a tarball or an extracted folder).
 
@@ -48,6 +54,7 @@ class LakhMidiSource(Source):
 
     name = "lakh"
     license = License.GRAY
+    uniform_license = True
 
     def __init__(self, path, *, name: str = "lakh"):
         self.name = name
@@ -62,11 +69,11 @@ class LakhMidiSource(Source):
     def _members(self) -> List[str]:
         """Relative paths of every ``.mid`` file (read once, then cached)."""
         if self.path.is_dir():
-            return sorted(
-                str(p.relative_to(self.path)) for p in self.path.rglob("*.mid")
-            )
-        with tarfile.open(self.path, "r:*") as tar:
-            return [m for m in tar.getnames() if m.lower().endswith(".mid")]
+            names = (str(p.relative_to(self.path)) for p in self.path.rglob("*"))
+        else:
+            with tarfile.open(self.path, "r:*") as tar:
+                names = tar.getnames()
+        return sorted(m for m in names if m.lower().endswith(".mid") and _is_safe(m))
 
     def search(self, query="", *, title="", composer="", limit=10) -> List[ScoreRef]:
         """Match the query against ``Artist`` and ``Title`` from the file names."""
@@ -97,6 +104,8 @@ class LakhMidiSource(Source):
         if fmt not in (None, "midi", "mid"):
             raise ValueError(f"lakh only serves MIDI, not {fmt!r}")
         rel = ref.metadata.get("member") or ref.id
+        if not _is_safe(rel):
+            raise ValueError(f"refusing unsafe member path {rel!r}")
         if self.path.is_dir():
             return str(self.path / rel)
         out = _http.cache_dir("lakh") / rel

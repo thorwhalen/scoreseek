@@ -103,3 +103,27 @@ def test_custom_site():
     )
     assert site.parse_hits('<a href="/m/7">Song A</a>') == [("7", "Song A")]
     assert WebMidiSource(sites=[site]).sites == {"mine": site}
+
+
+def test_slash_in_query_is_escaped_in_a_path():
+    from scoreseek.sources.webmidi import SITES
+
+    assert SITES["midis101"].quote("AC/DC back") == "AC%2FDC%20back"
+    assert SITES["midiworld"].quote("AC/DC back") == "AC%2FDC+back"
+
+
+def test_cache_names_do_not_collide_or_escape():
+    from scoreseek.sources.webmidi import _safe
+
+    assert _safe("a/b") != _safe("a?b")
+    assert "/" not in _safe("../../etc/passwd") and ".." not in _safe("../x")
+
+
+def test_default_search_does_not_query_gray_sources(monkeypatch):
+    import scoreseek
+    from scoreseek.registry import sources as registry
+
+    src = WebMidiSource()
+    monkeypatch.setattr(src, "_get_text", lambda *a, **k: pytest.fail("scraped"))
+    monkeypatch.setitem(registry, "webmidi_test", src)
+    scoreseek.search("star wars", sources=["webmidi_test"])  # must not scrape

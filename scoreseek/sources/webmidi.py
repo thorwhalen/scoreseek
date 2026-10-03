@@ -48,6 +48,9 @@ class MidiSite:
         page_url: Format string with ``{id}``: the human-facing page.
         referer: Send the page URL as ``Referer`` when downloading.
         clean_title: Turns the matched title text into a display title.
+        resolve_download: For sites whose file URL is only on the hit's page:
+            ``(page_html) -> download URL``. The page is fetched first when
+            this is set; otherwise ``download_url`` is used directly.
     """
 
     name: str
@@ -57,12 +60,13 @@ class MidiSite:
     page_url: str
     referer: bool = False
     clean_title: Callable[[str], str] = field(default=lambda s: s, compare=False)
+    resolve_download: Optional[Callable[[str], str]] = field(default=None, compare=False)
 
     def quote(self, text: str) -> str:
         """URL-quote a query: ``+`` for spaces in a query string, ``%20`` in a path."""
         if "?" in self.search_url:
             return urllib.parse.quote_plus(text)
-        return urllib.parse.quote(text)
+        return urllib.parse.quote(text, safe="")
 
     def parse_hits(self, html: str) -> List[Tuple[str, str]]:
         """``(id, title)`` pairs found on a search page, de-duplicated."""
@@ -78,6 +82,14 @@ class MidiSite:
 
 def _strip_tags(text: str) -> str:
     return re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", text)).strip()
+
+
+def _bitmidi_download(html: str) -> str:
+    """bitmidi pages name the real file in their JSON state."""
+    m = re.search(r'"downloadUrl":"(?P<u>/uploads/\d+\.mid)"', html)
+    if not m:
+        raise RuntimeError("bitmidi: no download link on the page")
+    return "https://bitmidi.com" + m.group("u")
 
 
 def _slug_title(slug: str) -> str:
@@ -96,8 +108,9 @@ SITES: Dict[str, MidiSite] = {
         name="bitmidi",
         search_url="https://bitmidi.com/search?q={q}",
         hit_pattern=r'href="/(?P<id>[a-z0-9-]+-mid)"(?P<title>)',
-        download_url="https://bitmidi.com/{id}",  # resolved via the page's downloadUrl
+        download_url="https://bitmidi.com/{id}",  # unused: see resolve_download
         page_url="https://bitmidi.com/{id}",
+        resolve_download=lambda html: _bitmidi_download(html),
     ),
     "midis101": MidiSite(
         name="midis101",
@@ -133,6 +146,7 @@ class WebMidiSource(Source):
 
     name = "webmidi"
     license = License.GRAY
+    uniform_license = True
 
     def __init__(
         self,
@@ -198,12 +212,8 @@ class WebMidiSource(Source):
         return hits[:limit]
 
     def _download_url(self, site: MidiSite, ident: str) -> str:
-        if site.name == "bitmidi":  # the page names the real file in its JSON state
-            page = self._get_text(site.page_url.format(id=ident))
-            m = re.search(r'"downloadUrl":"(?P<u>/uploads/\d+\.mid)"', page)
-            if not m:
-                raise RuntimeError(f"bitmidi: no download link on {ident!r}")
-            return "https://bitmidi.com" + m.group("u")
+        if site.resolve_download is not None:
+            return site.resolve_download(self._get_text(site.page_url.format(id=ident)))
         return site.download_url.format(id=ident)
 
     def fetch(self, ref: ScoreRef, *, fmt: Optional[str] = None) -> str:
@@ -228,4 +238,9 @@ class WebMidiSource(Source):
 
 
 def _safe(ident: str) -> str:
-    return re.sub(r"[^A-Za-z0-9_.-]+", "_", ident)[:120]
+    """A collision-free, traversal-free file stem for a site id."""
+    import hashlib
+
+    digest = hashlib.sha1(ident.encode("utf-8")).hexdigest()[:10]
+    readable = re.sub(r"[^A-Za-z0-9_-]+", "_", ident)[:80]
+    return f"{readable}-{digest}"

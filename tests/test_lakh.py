@@ -54,3 +54,27 @@ def test_folder_layout(tmp_path):
 def test_missing_path_says_where_to_download(tmp_path):
     with pytest.raises(FileNotFoundError, match="clean_midi.tar.gz"):
         LakhMidiSource(tmp_path / "nope.tar.gz")
+
+
+def test_unsafe_members_are_ignored_and_refused(tmp_path, monkeypatch):
+    monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path / "cache"))
+    path = tmp_path / "evil.tar.gz"
+    with tarfile.open(path, "w:gz") as tar:
+        for name in ("/abs/x.mid", "clean_midi/../../x.mid", "clean_midi/A/ok.mid"):
+            info = tarfile.TarInfo(name)
+            info.size = 4
+            tar.addfile(info, io.BytesIO(b"MThd"))
+    src = LakhMidiSource(path)
+    assert [h.id for h in src.search("")] == ["clean_midi/A/ok.mid"]
+    from scoreseek.base import ScoreRef
+
+    bad = ScoreRef(title="x", source="lakh", id="../../x.mid", metadata={"member": "../../x.mid"})
+    with pytest.raises(ValueError, match="unsafe"):
+        src.fetch(bad)
+
+
+def test_folder_mode_matches_upper_case_extension(tmp_path):
+    p = tmp_path / "clean_midi" / "B" / "Song.MID"
+    p.parent.mkdir(parents=True)
+    p.write_bytes(b"MThd")
+    assert LakhMidiSource(tmp_path / "clean_midi").search("song")[0].title == "Song"
