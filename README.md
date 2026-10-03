@@ -51,6 +51,8 @@ Register any object with that shape.
 | `ChordonomiconSource` | 680K chord progressions | CC-BY-NC (gray lane) | no title/artist — genre/chord-text search |
 | `KaggleChordsSource` | 135K chords+lyrics songs (via `sung`) | scraped / gray | needs Kaggle creds + a ~283 MB download |
 | `LocalFolderSource` | a folder of `.mid`/MusicXML/ABC/`kern` files | you set it | offline |
+| `WebMidiSource` | free-MIDI websites (bitmidi, midis101, midiworld): pop, film, game music | scraped / gray | HTML scraping, best effort; add sites with `MidiSite` |
+| `LakhMidiSource` | Lakh MIDI Dataset `clean_midi` (~17K `Artist/Title.mid`) | scraped / gray | local: the 234 MB tarball (searched unextracted) or the folder |
 
 ```python
 from scoreseek import register_source, License
@@ -61,6 +63,13 @@ register_source(LocalFolderSource("~/scores", license=License.PUBLIC_DOMAIN))
 
 hits = scoreseek.search("nocturne", composer="Chopin", sources=["imslp"])
 hits = scoreseek.search("hey jude", allow_copyrighted=True)  # opt into gray/copyrighted
+
+# film / pop MIDI from the web (gray lane: private study)
+from scoreseek.sources import WebMidiSource, LakhMidiSource
+
+register_source(WebMidiSource())
+register_source(LakhMidiSource("~/Downloads/clean_midi.tar.gz"))
+hits = scoreseek.search("star wars", allow_copyrighted=True)
 ```
 
 ### Canonicalize a messy query (MusicBrainz)

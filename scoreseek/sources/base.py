@@ -19,10 +19,14 @@ class Source:
         name: Unique registry name.
         license: Default :class:`~scoreseek.base.License` for this source's hits
             (individual hits may override).
+        uniform_license: Whether every hit has exactly ``license``.
     """
 
     name: str = "source"
     license: License = License.UNKNOWN
+    #: True when every hit carries ``license`` (no per-hit override), so a
+    #: search that would hide that license can skip the source entirely.
+    uniform_license: bool = False
 
     def search(
         self,
