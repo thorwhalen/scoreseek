@@ -60,7 +60,9 @@ class MidiSite:
     page_url: str
     referer: bool = False
     clean_title: Callable[[str], str] = field(default=lambda s: s, compare=False)
-    resolve_download: Optional[Callable[[str], str]] = field(default=None, compare=False)
+    resolve_download: Optional[Callable[[str], str]] = field(
+        default=None, compare=False
+    )
 
     def quote(self, text: str) -> str:
         """URL-quote a query: ``+`` for spaces in a query string, ``%20`` in a path."""

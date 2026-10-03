@@ -41,7 +41,9 @@ def _artist_title(rel: str):
 def _is_safe(rel: str) -> bool:
     """A relative path that stays inside its root (no absolute, no ``..``)."""
     p = Path(rel)
-    return not p.is_absolute() and ".." not in p.parts and not rel.startswith(("/", "\\"))
+    return (
+        not p.is_absolute() and ".." not in p.parts and not rel.startswith(("/", "\\"))
+    )
 
 
 class LakhMidiSource(Source):
