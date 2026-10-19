@@ -246,7 +246,7 @@ class IMSLPSource(Source):
                         main = rev.get("slots", {}).get("main", {}) or {}
                         texts[pg.get("title", "")] = main.get("*") or rev.get("*", "")
                 # a big batch can be cut short; continue until complete
-                cont = data.get("continue") or {}
+                cont = _continuation(data)
                 if not cont:
                     break
             for title in batch:
@@ -377,14 +377,17 @@ class IMSLPSource(Source):
             return self._download(ref, chosen, page, max_bytes)
 
         pool = picks.candidates(files, fmt=fmt, max_bytes=max_bytes, where=where)
-        while True:
+        tried = []
+        while pool:
             chosen = picks.apply_pick(pick, pool, where=where)
             try:
                 return self._download(ref, chosen, page, max_bytes)
             except ScoreTooLargeError:
-                pool = [f for f in pool if f is not chosen]
-                if not pool:
-                    raise
+                # its size was not listed; drop it (by value, as apply_pick
+                # matched it) and let the strategy choose again
+                tried.append(chosen)
+                pool = [f for f in pool if f != chosen]
+        raise picks.too_large_error(tried, fmt=fmt, max_bytes=max_bytes, where=where)
 
     def _download(self, ref, chosen: ScoreFile, page: str, max_bytes) -> str:
         index = chosen.metadata.get("index")
@@ -406,6 +409,20 @@ class IMSLPSource(Source):
 #: Re-exported: the file-choice strategies live in :mod:`scoreseek.picks`.
 prefer_safe_renderable = picks.prefer_safe_renderable
 smallest = picks.smallest
+
+
+def _continuation(data: dict) -> dict:
+    """Request params to fetch the rest of a truncated query, or ``{}``.
+
+    IMSLP runs MediaWiki 1.18, which reports ``query-continue: {module: {...}}``;
+    newer servers report a flat ``continue: {...}``. Both are honoured.
+    """
+    if data.get("continue"):
+        return dict(data["continue"])
+    cont = {}
+    for params in (data.get("query-continue") or {}).values():
+        cont.update(params)
+    return cont
 
 
 def _parse_size(tail: str) -> tuple:

@@ -577,9 +577,16 @@ def test_search_follows_redirects_and_dedupes(monkeypatch):
     assert [f.filename for f in hit.files()] == ["PMLP9-s.pdf"]
 
 
-def test_wikitexts_follows_continuation(monkeypatch):
+@pytest.mark.parametrize(
+    "cont",
+    [
+        {"query-continue": {"revisions": {"rvcontinue": "2|x"}}},  # IMSLP (MW 1.18)
+        {"continue": {"rvcontinue": "2|x", "continue": "||"}},  # newer MediaWiki
+    ],
+)
+def test_wikitexts_follows_continuation(monkeypatch, cont):
     first = {
-        "continue": {"rvcontinue": "2|x", "continue": "||"},
+        **cont,
         "query": {"pages": {"1": {"title": "A", "revisions": [{"*": "ta"}]}}},
     }
     second = {"query": {"pages": {"2": {"title": "B", "revisions": [{"*": "tb"}]}}}}
@@ -593,3 +600,24 @@ def test_wikitexts_follows_continuation(monkeypatch):
     monkeypatch.setattr(src, "_get_json", mock)
     assert src._wikitexts(["A", "B"]) == {"A": ("A", "ta"), "B": ("B", "tb")}
     assert len(calls) == 2
+
+
+def test_fallback_terminates_for_value_equal_pick(monkeypatch):
+    # a strategy may return an equal (not identical) ScoreFile, e.g. one kept from
+    # an earlier ref.files(); the fallback must still drop it (2nd review, #1)
+    from scoreseek import ScoreTooLargeError
+
+    files = [("PMLP1-a.pdf", "?", "1", "Complete Score")]
+    src, _ = _src(monkeypatch, files)
+    ref = src.search("Chopin")[0]
+    kept = ref.files()[0]
+    calls = []
+
+    def fake_bytes(url, *, max_bytes=None):
+        calls.append(url)
+        raise ScoreTooLargeError("too big")
+
+    monkeypatch.setattr(src, "_get_bytes", fake_bytes)
+    with pytest.raises(ScoreTooLargeError, match="PMLP1-a.pdf"):
+        ref.fetch(pick=lambda fs: kept)
+    assert len(calls) == 1
