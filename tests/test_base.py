@@ -23,3 +23,23 @@ def test_scoreref_commercial_safe():
 def test_scoreref_fetch_without_source_raises():
     with pytest.raises(NotImplementedError):
         ScoreRef("t", "s").fetch()
+
+
+def test_files_on_a_non_listing_source_raises():
+    import pytest
+
+    from scoreseek.sources import TheSessionSource
+
+    ref = TheSessionSource()._ref(title="x")
+    with pytest.raises(NotImplementedError, match="does not list"):
+        ref.files()
+    with pytest.raises(NotImplementedError, match="cannot be listed"):
+        ScoreRef(title="bare", source="none").files()
+
+
+def test_fetch_options_unsupported_by_source_are_named():
+    from scoreseek.sources import TheSessionSource
+
+    ref = TheSessionSource()._ref(title="x", id="1")
+    with pytest.raises(TypeError, match=r"'thesession' does not support .*'max_bytes'"):
+        ref.fetch(max_bytes=10)

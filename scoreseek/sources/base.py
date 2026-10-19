@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from typing import List, Optional
 
-from scoreseek.base import License, ScoreRef
+from scoreseek.base import License, ScoreFile, ScoreRef
 
 
 class Source:
@@ -49,6 +49,15 @@ class Source:
         """
         raise NotImplementedError(
             f"Source {self.name!r} is metadata-only and cannot fetch content."
+        )
+
+    def files(self, ref: ScoreRef) -> List[ScoreFile]:
+        """List the downloadable files behind ``ref`` (kinds, sizes, licenses).
+
+        Sources whose hits bundle several files override this; the default raises.
+        """
+        raise NotImplementedError(
+            f"Source {self.name!r} does not list the files behind a hit."
         )
 
     def _ref(self, **kwargs) -> ScoreRef:

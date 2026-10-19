@@ -2,7 +2,10 @@
 license-partitioning constants.
 
 A search returns :class:`ScoreRef` hits -- lightweight, license-tagged pointers
-to a score that can be :meth:`ScoreRef.fetch`-ed on demand. The **license tag on
+to a score that can be :meth:`ScoreRef.fetch`-ed on demand. A hit that bundles
+several files (an IMSLP work page lists scores, parts, arrangements) can be
+inspected first with :meth:`ScoreRef.files`, which returns :class:`ScoreFile`
+entries with their kind and size. The **license tag on
 every hit** is the load-bearing design choice: it lets the facade keep
 public-domain / permissive results cleanly separated from copyrighted-user-upload
 or gray-licensed results (see :data:`COMMERCIAL_SAFE` / :data:`RESTRICTED`).
@@ -10,9 +13,10 @@ or gray-licensed results (see :data:`COMMERCIAL_SAFE` / :data:`RESTRICTED`).
 
 from __future__ import annotations
 
+import inspect
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, Optional
+from typing import Any, List, Optional
 
 
 class License(str, Enum):
@@ -42,6 +46,33 @@ RESTRICTED = frozenset({License.COPYRIGHTED, License.GRAY, License.NONCOMMERCIAL
 #: content, so it is not hidden, whereas a *known* restriction (NC/copyright/gray)
 #: is respected by the safe default.
 DEFAULT_VISIBLE = COMMERCIAL_SAFE | frozenset({License.UNKNOWN})
+
+
+class ScoreTooLargeError(RuntimeError):
+    """Raised when every candidate file (or the download itself) exceeds a size cap."""
+
+
+@dataclass(frozen=True)
+class ScoreFile:
+    """One downloadable file behind a :class:`ScoreRef` (see :meth:`ScoreRef.files`).
+
+    Attributes:
+        filename: The source's file name; pass it as ``pick=`` to fetch this file.
+        kind: Format label, e.g. ``"pdf"``, ``"midi"``, ``"musicxml"``, ``"zip"``.
+        size: Size in bytes, or ``None`` when the source does not report it.
+        license: This file's own :class:`License` (may differ from the hit's).
+        description: Human description, e.g. ``"Complete Score"``.
+        section: Where the file sits on its page, e.g. ``"Parts"``.
+        metadata: Source-specific extra fields.
+    """
+
+    filename: str
+    kind: str
+    size: Optional[int] = None
+    license: License = License.UNKNOWN
+    description: str = ""
+    section: str = ""
+    metadata: dict = field(default_factory=dict, compare=False, hash=False)
 
 
 @dataclass
@@ -76,19 +107,53 @@ class ScoreRef:
         """True if this score's license permits redistribution/commercial use."""
         return self.license in COMMERCIAL_SAFE
 
-    def fetch(self, *, fmt: Optional[str] = None):
+    def fetch(self, *, fmt: Optional[str] = None, **options):
         """Retrieve the score content (returns a filesystem path).
 
         Delegates to the originating source. The returned path can be handed
-        straight to ``audiate.render(...)``.
+        straight to ``audiate.render(...)``. Extra keyword ``options`` are passed
+        through to the source (e.g. IMSLP's ``max_bytes=`` and ``pick=``).
 
         Raises:
             NotImplementedError: If the originating source can't fetch (e.g. a
                 metadata-only source, or a bare ``ScoreRef`` with no source).
+            TypeError: If the source's ``fetch`` does not take one of ``options``
+                (the message names the ones it does take).
         """
-        if self._source_obj is None or not hasattr(self._source_obj, "fetch"):
+        source = self._require_source("fetch", "fetched")
+        if options:
+            _check_options(source.fetch, options, source=self.source)
+        return source.fetch(self, fmt=fmt, **options)
+
+    def files(self) -> List[ScoreFile]:
+        """List the downloadable files behind this hit, with kinds and sizes.
+
+        Use it to see what :meth:`fetch` would choose from, then pass a
+        ``filename`` as ``fetch(pick=...)``.
+
+        Raises:
+            NotImplementedError: If the originating source can't list files.
+        """
+        return self._require_source("files", "listed").files(self)
+
+    def _require_source(self, method: str, verb: str):
+        if self._source_obj is None or not hasattr(self._source_obj, method):
             raise NotImplementedError(
                 f"ScoreRef {self.title!r} from source {self.source!r} cannot be "
-                "fetched (no fetch-capable source attached)."
+                f"{verb} (no {method}-capable source attached)."
             )
-        return self._source_obj.fetch(self, fmt=fmt)
+        return self._source_obj
+
+
+def _check_options(func, options: dict, *, source: str) -> None:
+    """Raise a clear ``TypeError`` if *func* cannot take every key of *options*."""
+    params = inspect.signature(func).parameters
+    if any(p.kind is p.VAR_KEYWORD for p in params.values()):
+        return
+    unsupported = sorted(set(options) - set(params))
+    if unsupported:
+        takes = sorted(n for n, p in params.items() if p.kind is p.KEYWORD_ONLY)
+        raise TypeError(
+            f"source {source!r} does not support fetch option(s) {unsupported} "
+            f"(its fetch takes: {takes})"
+        )

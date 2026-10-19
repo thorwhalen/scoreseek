@@ -5,24 +5,40 @@ import os
 from scoreseek.base import License
 from scoreseek.sources import OpenScoreLiederSource
 
-# Real manifest shape (header + 3 rows), from the live data/scores.tsv.
-_SCORES_TSV = (
-    "id\tpath\tname\tlink\timslp\tset_id\tlyricist_url\n"
-    "6583477\tAbbott,_Jane_Bingham/_/Just_for_Today\tJust for Today"
-    "\thttps://musescore.com/openscore-lieder-corpus/scores/6583477\t#412044\t5106766\thttps://imslp.org/x\n"
-    "6583907\tAbrams,_Harriett/_/Crazy_Jane\tCrazy Jane"
-    "\thttps://musescore.com/openscore-lieder-corpus/scores/6583907\t#396671\t5106769\t\n"
-    "6583966\tAbrams,_Harriett/_/The_Orphans_Prayer\tThe Orphans Prayer"
-    "\thttps://musescore.com/openscore-lieder-corpus/scores/6583966\t#436708\t5106769\t\n"
-)
-_COMPOSERS_TSV = (
-    "id\tpath\tname\tgender\tborn\tdied\tdesc\tsets\tscores\tlink\twikidata\twikipedia\timslp\timage\n"
-    "11925257\tAbrams,_Harriett\tHarriett Abrams\tFemale\t1758\t1821\tcomposer\t1\t2\tx\tQ1\tx\tx\tx\n"
-)
+# Real manifest shape (StrictYAML), from the live data/scores.yaml: the title
+# comes from the path leaf, and nested blocks (audio:) must be skipped.
+_SCORES_YAML = """# Parse this file with StrictYAML - https://github.com/crdoconnor/strictyaml
+6583477:
+  path: Abbott,_Jane_Bingham/_/Just_for_Today
+  imslp: '#412044'
+  set_id: 5106766
+  lyricist_url: https://imslp.org/wiki/Category:Wilberforce,_Samuel
+  language: EN
+6583907:
+  path: Abrams,_Harriett/_/Crazy_Jane
+  imslp: '#396671'
+  set_id: 5106769
+  lyricist: M. Lewis
+  language: EN
+  audio:
+  - audio_id: vonOtterForsberg2001
+    audio: https://www.youtube.com/watch?v=x
+6583966:
+  path: Abrams,_Harriett/_/The_Orphans_Prayer
+  imslp: '#436708'
+  set_id: 5106769
+"""
+_COMPOSERS_YAML = """# Parse this file with StrictYAML
+11925257:
+  path: Abrams,_Harriett
+  name: Harriett Abrams
+  gender: Female
+  born: 1758
+"""
 
 
 def _mock_text(url):
-    return _COMPOSERS_TSV if "composers.tsv" in url else _SCORES_TSV
+    return _COMPOSERS_YAML if "composers.yaml" in url else _SCORES_YAML
 
 
 def test_search_builds_refs(monkeypatch):
@@ -38,6 +54,8 @@ def test_search_builds_refs(monkeypatch):
     assert ref.formats == ("musicxml", "musescore")
     assert ref.source == "openscore_lieder"
     assert ref.metadata["path"] == "Abrams,_Harriett/_/Crazy_Jane"
+    assert ref.metadata["imslp"] == "#396671"  # quoted scalar unquoted
+    assert ref.url == "https://musescore.com/openscore-lieder-corpus/scores/6583907"
 
 
 def test_search_by_composer(monkeypatch):
@@ -74,3 +92,35 @@ def test_fetch_writes_mxl_with_encoded_path(monkeypatch):
         assert captured["url"].endswith("lc6583907.mxl")
     finally:
         os.remove(path)
+
+
+def test_manifest_urls_are_the_yaml_ones(monkeypatch):
+    # data/scores.tsv was removed upstream (404); the YAML manifests replaced it
+    src = OpenScoreLiederSource()
+    seen = []
+    monkeypatch.setattr(
+        src, "_get_text", lambda url: seen.append(url) or _mock_text(url)
+    )
+    src.search("Crazy Jane")
+    assert all(u.endswith((".yaml",)) for u in seen)
+    assert any(u.endswith("data/scores.yaml") for u in seen)
+
+
+def test_title_from_path_drops_set_ordinal():
+    from scoreseek.sources.openscore import _title_from_path
+
+    assert (
+        _title_from_path("Bantock,_Granville/Set/2_The_Ghost_Road") == "The Ghost Road"
+    )
+    assert _title_from_path("Abrams,_Harriett/_/Crazy_Jane") == "Crazy Jane"
+    assert _title_from_path("X/Set/7c_Havanaise") == "Havanaise"
+
+
+def test_parse_flat_yaml_unquotes_and_skips_nested():
+    from scoreseek.sources.openscore import _parse_flat_yaml
+
+    parsed = _parse_flat_yaml(_SCORES_YAML)
+    assert list(parsed) == ["6583477", "6583907", "6583966"]
+    assert parsed["6583907"]["imslp"] == "#396671"
+    assert "audio" not in parsed["6583907"]
+    assert "audio_id" not in parsed["6583907"]

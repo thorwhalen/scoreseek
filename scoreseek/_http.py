@@ -15,8 +15,13 @@ import urllib.request
 from pathlib import Path
 from typing import Optional
 
+from scoreseek.base import ScoreTooLargeError
+
 #: Kept in sync with pyproject; embedded in the default User-Agent.
 __version__ = "0.0.1"
+
+#: Bytes per MB as file hosts report it (IMSLP's "779.10MB" means 779.10 MiB).
+MB = 2**20
 
 #: Default User-Agent for outbound requests. A descriptive UA is required by
 #: some hosts (MusicBrainz returns 403 for a blank/generic UA).
@@ -32,11 +37,49 @@ def _open(url: str, *, timeout: float, headers: Optional[dict] = None):
 
 
 def get_bytes(
-    url: str, *, timeout: float = 15.0, headers: Optional[dict] = None
+    url: str,
+    *,
+    timeout: float = 15.0,
+    headers: Optional[dict] = None,
+    max_bytes: Optional[int] = None,
 ) -> bytes:
-    """GET *url* and return the raw response bytes."""
+    """GET *url* and return the raw response bytes.
+
+    With ``max_bytes``, refuse a response whose ``Content-Length`` exceeds it, and
+    stop reading (raising :class:`~scoreseek.base.ScoreTooLargeError`) once the
+    body passes it -- so a cap holds even when the server reports no length.
+    """
     with _open(url, timeout=timeout, headers=headers) as resp:
-        return resp.read()
+        if max_bytes is None:
+            return resp.read()
+        declared = resp.headers.get("Content-Length")
+        if declared and declared.isdigit() and int(declared) > max_bytes:
+            raise _too_large(url, int(declared), max_bytes)
+        chunks, total = [], 0
+        while chunk := resp.read(MB):
+            total += len(chunk)
+            if total > max_bytes:
+                raise _too_large(url, None, max_bytes)
+            chunks.append(chunk)
+        return b"".join(chunks)
+
+
+def _too_large(url: str, size: Optional[int], max_bytes: int) -> ScoreTooLargeError:
+    got = human_size(size) if size is not None else "more than that"
+    return ScoreTooLargeError(
+        f"{url} is {got}, over max_bytes={max_bytes} ({human_size(max_bytes)}). "
+        "Pass a larger max_bytes, or max_bytes=None for no cap."
+    )
+
+
+def human_size(n: Optional[int]) -> str:
+    """``54841`` -> ``"53.6 KB"``, ``None`` -> ``"unknown size"`` (binary units)."""
+    if n is None:
+        return "unknown size"
+    for unit, scale in (("GB", 2**30), ("MB", MB), ("KB", 2**10)):
+        if n >= scale:
+            return f"{n / scale:.1f} {unit}"
+    return f"{n} B"
 
 
 def get_text(
