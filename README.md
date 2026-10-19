@@ -46,7 +46,7 @@ Register any object with that shape.
 
 | Source | What | License | Notes |
 |---|---|---|---|
-| `IMSLPSource` | IMSLP/Petrucci public-domain classical | Public Domain | live API; mostly PDF, some MIDI |
+| `IMSLPSource` | IMSLP/Petrucci public-domain classical | Public Domain | live API; mostly PDF, some MIDI; size-capped fetch (see below) |
 | `PDMXSource` | 250K Public-Domain MusicXML corpus | PD / CC0 | **local corpus** — one-time download (see below) |
 | `ChordonomiconSource` | 680K chord progressions | CC-BY-NC (gray lane) | no title/artist — genre/chord-text search |
 | `KaggleChordsSource` | 135K chords+lyrics songs (via `sung`) | scraped / gray | needs Kaggle creds + a ~283 MB download |
@@ -71,6 +71,31 @@ register_source(WebMidiSource())
 register_source(LakhMidiSource("~/Downloads/clean_midi.tar.gz"))
 hits = scoreseek.search("star wars", allow_copyrighted=True)
 ```
+
+### Choosing an IMSLP file (and not downloading 800 MB)
+
+An IMSLP hit is a whole work page: full scores, parts, arrangements, some of them
+hundreds of MB. Hits carry their `formats`, `ref.files()` lists every file with its
+kind and size, and `fetch` takes a size cap and a choice strategy:
+
+```python
+from scoreseek.sources.imslp import smallest
+
+ref = scoreseek.search("Symphony No.5", composer="Beethoven", sources=["imslp"])[0]
+ref.formats                      # ('pdf', 'zip')
+for f in ref.files():            # ScoreFile(filename, kind, size, license, section, ...)
+    print(f.kind, f.size, f.section, f.filename)
+
+ref.fetch()                      # default: <= 50 MB, MIDI/MusicXML first, full score over parts
+ref.fetch(fmt="midi")            # only MIDI files
+ref.fetch(pick=smallest)         # a strategy: (List[ScoreFile]) -> ScoreFile
+ref.fetch(pick="PMLP01586-BH1826fsc.pdf")   # a filename from ref.files()
+ref.fetch(max_bytes=None)        # no cap
+```
+
+When every candidate is over the cap, `fetch` raises `ScoreTooLargeError` naming
+the smallest ones. Set source-wide defaults with
+`IMSLPSource(max_bytes=..., pick=...)`.
 
 ### Canonicalize a messy query (MusicBrainz)
 

@@ -23,3 +23,15 @@ def test_scoreref_commercial_safe():
 def test_scoreref_fetch_without_source_raises():
     with pytest.raises(NotImplementedError):
         ScoreRef("t", "s").fetch()
+
+
+def test_files_on_a_non_listing_source_raises():
+    import pytest
+
+    from scoreseek.sources import TheSessionSource
+
+    ref = TheSessionSource()._ref(title="x")
+    with pytest.raises(NotImplementedError, match="does not list"):
+        ref.files()
+    with pytest.raises(NotImplementedError, match="cannot be listed"):
+        ScoreRef(title="bare", source="none").files()

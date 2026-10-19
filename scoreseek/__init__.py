@@ -41,7 +41,9 @@ from scoreseek.base import (
     DEFAULT_VISIBLE,
     RESTRICTED,
     License,
+    ScoreFile,
     ScoreRef,
+    ScoreTooLargeError,
 )
 from scoreseek.normalize import MusicBrainzNormalizer
 
@@ -60,6 +62,8 @@ __all__ = [
     "register_source",
     "source_registry",
     "ScoreRef",
+    "ScoreFile",
+    "ScoreTooLargeError",
     "License",
     "SourceRegistry",
     "MusicBrainzNormalizer",
