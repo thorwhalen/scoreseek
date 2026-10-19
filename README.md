@@ -82,16 +82,16 @@ kind and size, and `fetch` takes a size cap and a choice strategy:
 from scoreseek.picks import smallest
 
 ref = scoreseek.search("Symphony No.5", composer="Beethoven", sources=["imslp"])[0]
-ref.formats                      # ('pdf', 'zip')
-for f in ref.files():            # ScoreFile(filename, kind, size, license, section, ...)
+ref.formats  # ('pdf', 'zip')
+for f in ref.files():  # ScoreFile(filename, kind, size, license, section, ...)
     print(f.kind, f.size, f.section, f.filename)
 
-ref.fetch()                      # default: <= 50 MB; a PD/CC0 file first, then MIDI/MusicXML,
-                                 # a score over a part, then IMSLP's page order
-ref.fetch(fmt="pdf")             # only PDFs (fmt="midi" raises if the page has no MIDI)
-ref.fetch(pick=smallest)         # a strategy: (List[ScoreFile]) -> ScoreFile
-ref.fetch(pick="PMLP01586-BH1826fsc.pdf")   # a filename from ref.files()
-ref.fetch(max_bytes=None)        # no cap
+ref.fetch()  # default: <= 50 MB; a PD/CC0 file first, then MIDI/MusicXML,
+# a score over a part, then IMSLP's page order
+ref.fetch(fmt="pdf")  # only PDFs (fmt="midi" raises if the page has no MIDI)
+ref.fetch(pick=smallest)  # a strategy: (List[ScoreFile]) -> ScoreFile
+ref.fetch(pick="PMLP01586-BH1826fsc.pdf")  # a filename from ref.files()
+ref.fetch(max_bytes=None)  # no cap
 ```
 
 When every candidate is over the cap, `fetch` raises `ScoreTooLargeError` naming
