@@ -103,7 +103,7 @@ downloading, the next choice is tried. Set source-wide defaults with
 
 ```python
 for ref in scoreseek.search("waltz"):
-    path = ref.fetch(max_bytes=5_000_000)   # ScoreTooLargeError if over
+    path = ref.fetch(max_bytes=5_000_000)  # ScoreTooLargeError if over
 ```
 
 Sources that download (IMSLP, OpenScore, The Session, WebMidi, Chordonomicon)
