@@ -180,6 +180,8 @@ class PDMXSource(Source):
         corpus for the chosen format hasn't been downloaded/extracted.
         """
         max_bytes = self._cap(max_bytes)
+        if fmt is None and pick is None:
+            fmt = "musicxml"  # the default is unchanged: the MusicXML file
         if fmt is not None:
             col = _FMT_COL.get(fmt.lower())
             if col is None:
@@ -201,8 +203,12 @@ class PDMXSource(Source):
             )
         else:
             pool = picks.candidates(files, fmt=fmt, max_bytes=max_bytes, where=where)
-            # default: the listing order (MusicXML first), as before
-            chosen = picks.apply_pick(pick or (lambda fs: fs[0]), pool, where=where)
+            # a strategy chooses among extracted files (their size is known);
+            # if none is extracted, the choice below raises the download hint
+            extracted = [f for f in pool if f.size is not None]
+            chosen = picks.apply_pick(
+                pick or (lambda fs: fs[0]), extracted or pool, where=where
+            )
         col = chosen.metadata["col"]
         local = self._local(chosen.metadata["rel"])
         if not local.exists():

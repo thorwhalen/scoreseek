@@ -161,14 +161,19 @@ class ScoreRef:
                 filename for a source that lists no files.
         """
         source = self._require_source("fetch", "fetched")
+        _validate_max_bytes(max_bytes)
+        if isinstance(pick, ScoreFile):  # an entry from ref.files()
+            pick = pick.filename
         if options:
             _check_options(source.fetch, options, source=self.source)
         kwargs = dict(options)
-        native_cap = _accepts(source.fetch, "max_bytes")
+        # "native" only when fetch *names* the option: a **kwargs catch-all may
+        # silently ignore it, so the generic size check must still run then
+        native_cap = _names(source.fetch, "max_bytes")
         if native_cap and max_bytes is not UNSET:
             kwargs["max_bytes"] = max_bytes
         if pick is not None:
-            if _accepts(source.fetch, "pick"):
+            if _names(source.fetch, "pick"):
                 kwargs["pick"] = pick
             elif isinstance(pick, str):
                 raise TypeError(
@@ -217,15 +222,28 @@ def _check_options(func, options: dict, *, source: str) -> None:
         )
 
 
-def _accepts(func, name: str) -> bool:
-    """True if *func* takes keyword ``name`` (explicitly or via ``**kwargs``)."""
-    params = inspect.signature(func).parameters
-    return name in params or any(p.kind is p.VAR_KEYWORD for p in params.values())
+def _names(func, name: str) -> bool:
+    """True if *func* has a parameter literally named ``name`` (not via ``**kw``)."""
+    try:
+        return name in inspect.signature(func).parameters
+    except (TypeError, ValueError):  # no inspectable signature: assume not
+        return False
+
+
+def _validate_max_bytes(max_bytes) -> None:
+    if max_bytes is UNSET or max_bytes is None:
+        return
+    if isinstance(max_bytes, bool) or not isinstance(max_bytes, int):
+        raise TypeError(f"max_bytes must be an int (bytes) or None, not {max_bytes!r}")
+    if max_bytes < 0:
+        raise ValueError(f"max_bytes must be >= 0, not {max_bytes}")
 
 
 def _check_file_size(path, max_bytes: Optional[int], *, source: str) -> None:
     """Raise :class:`ScoreTooLargeError` if the file at *path* exceeds ``max_bytes``."""
-    if max_bytes is None or not os.path.isfile(path):
+    if max_bytes is None or not isinstance(path, (str, os.PathLike)):
+        return
+    if not os.path.isfile(path):
         return
     size = os.path.getsize(path)
     if size > max_bytes:

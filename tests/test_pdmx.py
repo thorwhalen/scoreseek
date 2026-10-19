@@ -111,8 +111,9 @@ def test_fetch_pick_by_filename_and_strategy(tmp_path):
     assert ref.fetch(pick="QmABC.mxl").endswith("QmABC.mxl")
     with pytest.raises(FileNotFoundError, match="mid.tar.gz"):
         ref.fetch(pick="QmABC.mid")
-    with pytest.raises(FileNotFoundError, match="mid.tar.gz"):
-        ref.fetch(pick=lambda files: files[1])
+    # a strategy only sees extracted files: here just the MusicXML one
+    assert ref.fetch(pick=lambda files: files[-1]).endswith("QmABC.mxl")
+    assert ref.fetch(pick=ref.files()[0]).endswith("QmABC.mxl")  # a ScoreFile
     with pytest.raises(RuntimeError, match="is a musicxml file, not midi"):
         ref.fetch(fmt="midi", pick="QmABC.mxl")
 
@@ -124,3 +125,31 @@ def test_fetch_max_bytes(tmp_path):
     assert ref.fetch().endswith("QmABC.mxl")  # local corpus: no default cap
     with pytest.raises(ScoreTooLargeError, match="Smallest: QmABC.mxl"):
         ref.fetch(fmt="musicxml", max_bytes=2)
+
+
+def test_cap_on_default_fetch_names_the_musicxml_file(tmp_path):
+    # the cap must not steer the default to an unextracted MIDI (review #1)
+    from scoreseek import ScoreTooLargeError
+
+    _, ref = _helvic(tmp_path)
+    with pytest.raises(ScoreTooLargeError, match="QmABC.mxl"):
+        ref.fetch(max_bytes=2)
+
+
+def test_default_fetch_of_a_midi_only_hit_is_unchanged(tmp_path):
+    # default fetch stays "the MusicXML file": a MIDI-only hit raises as on main
+    (tmp_path / "PDMX.csv").write_text(
+        _HEADER
+        + "\nOnlyMid,OnlyMid,NA,NA,publicdomain,False,NA,./mid/5/55/QmMID.mid,NA,1,NA\n",
+        encoding="utf-8",
+    )
+    ref = PDMXSource(tmp_path).search("OnlyMid")[0]
+    with pytest.raises(ValueError, match="available: \\['mid'\\]"):
+        ref.fetch()
+
+
+def test_strategy_with_nothing_extracted_gives_the_download_hint(tmp_path):
+    src = PDMXSource(_make_corpus(tmp_path, with_mxl=False))
+    ref = next(h for h in src.search("Helvic") if h.title == "Helvic Head")
+    with pytest.raises(FileNotFoundError, match="tar.gz"):
+        ref.fetch(pick=lambda files: files[0])

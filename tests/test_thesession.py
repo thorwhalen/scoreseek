@@ -2,6 +2,8 @@
 
 import os
 
+import pytest
+
 from scoreseek.base import License
 from scoreseek.sources import TheSessionSource
 
@@ -54,3 +56,23 @@ def test_fetch_writes_valid_abc(monkeypatch):
         assert "EBBA" in text  # the ABC body
     finally:
         os.remove(path)
+
+
+def test_cap_is_checked_before_writing_no_temp_leak(monkeypatch, tmp_path):
+    import tempfile
+
+    from scoreseek import ScoreTooLargeError
+
+    monkeypatch.setattr(tempfile, "tempdir", str(tmp_path))
+    src = TheSessionSource()
+    monkeypatch.setattr(
+        src,
+        "_get_json",
+        lambda url: {"name": "T", "settings": [{"key": "D", "abc": "abc" * 100}]},
+    )
+    ref = src._ref(title="T", id="1")
+    with pytest.raises(ScoreTooLargeError):
+        ref.fetch(max_bytes=10)
+    assert list(tmp_path.iterdir()) == []  # nothing written
+    path = ref.fetch()
+    assert open(path).read().startswith("X:1")

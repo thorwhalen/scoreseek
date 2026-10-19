@@ -83,25 +83,70 @@ def test_pick_on_a_single_file_source(tmp_path):
         ref.fetch(pick="score.mid")
 
 
-def test_every_builtin_source_accepts_the_uniform_options():
-    # a loop over mixed search results passes max_bytes/pick without branching:
-    # each source either takes them natively or is covered by ScoreRef.fetch
-    from scoreseek.base import DEFAULT_MAX_BYTES, _accepts
+def test_builtin_sources_default_caps_and_pick_support():
+    # downloading sources cap by default, local corpora don't; a source that
+    # takes pick natively must also list its files
     from scoreseek import sources as S
+    from scoreseek.base import DEFAULT_MAX_BYTES, _names
 
     downloading = {
-        "IMSLPSource",
         "OpenScoreLiederSource",
         "TheSessionSource",
         "WebMidiSource",
         "ChordonomiconSource",
     }
-    for name in S.__all__:
+    local = {"LocalFolderSource", "PDMXSource", "LakhMidiSource", "KaggleChordsSource"}
+    for name in downloading | local:
+        assert getattr(S, name).max_bytes == (
+            DEFAULT_MAX_BYTES if name in downloading else None
+        ), name
+    assert S.IMSLPSource().max_bytes == DEFAULT_MAX_BYTES
+    for name in ("IMSLPSource", "PDMXSource"):
         cls = getattr(S, name)
-        if not (isinstance(cls, type) and issubclass(cls, S.Source)) or cls is S.Source:
-            continue
-        expected = DEFAULT_MAX_BYTES if name in downloading else None
-        if name != "IMSLPSource":  # IMSLP sets it per instance (configurable)
-            assert cls.max_bytes == expected, name
-        if _accepts(cls.fetch, "pick"):
-            assert hasattr(cls, "files") and cls.files is not S.Source.files, name
+        assert _names(cls.fetch, "pick") and cls.files is not S.Source.files
+
+
+def test_kwargs_catch_all_does_not_disable_the_size_check(tmp_path):
+    # a fetch(**kw) may ignore max_bytes; the generic check must still run
+    from scoreseek import ScoreTooLargeError
+
+    class Pass(_OneFile):
+        def fetch(self, ref, *, fmt=None, **kw):
+            return str(self.path)
+
+    ref = Pass(tmp_path, 500).ref()
+    with pytest.raises(ScoreTooLargeError):
+        ref.fetch()  # default cap 100
+    with pytest.raises(ScoreTooLargeError):
+        ref.fetch(max_bytes=10)
+
+
+def test_undecorated_wrapper_fetch_gets_no_pick_and_is_still_capped(tmp_path):
+    from scoreseek import ScoreTooLargeError
+    from scoreseek.picks import smallest
+
+    class Wrapped(_OneFile):
+        def __init__(self, tmp_path, size):
+            super().__init__(tmp_path, size)
+            inner = self.fetch
+            self.fetch = lambda *a, **k: inner(*a, **k)  # no functools.wraps
+
+    assert Wrapped(tmp_path, 10).ref().fetch(pick=smallest).endswith("score10.mid")
+    with pytest.raises(ScoreTooLargeError):
+        Wrapped(tmp_path, 500).ref().fetch()
+
+
+def test_max_bytes_is_validated(tmp_path):
+    ref = _OneFile(tmp_path, 10).ref()
+    with pytest.raises(TypeError, match="max_bytes must be an int"):
+        ref.fetch(max_bytes="5MB")
+    with pytest.raises(ValueError, match=">= 0"):
+        ref.fetch(max_bytes=-1)
+
+
+def test_a_scorefile_is_accepted_as_pick(tmp_path):
+    from scoreseek.base import ScoreFile
+
+    ref = _OneFile(tmp_path, 10).ref()
+    with pytest.raises(TypeError, match="one file per hit"):  # treated as filename
+        ref.fetch(pick=ScoreFile("score10.mid", "midi"))

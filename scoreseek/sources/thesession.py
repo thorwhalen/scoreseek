@@ -15,7 +15,13 @@ import urllib.parse
 import urllib.request
 from typing import List, Optional
 
-from scoreseek.base import DEFAULT_MAX_BYTES, License, ScoreRef
+from scoreseek.base import (
+    DEFAULT_MAX_BYTES,
+    UNSET,
+    License,
+    ScoreRef,
+    ScoreTooLargeError,
+)
 from scoreseek.sources.base import Source
 
 _BASE = "https://thesession.org"
@@ -86,8 +92,13 @@ class TheSessionSource(Source):
             )
         return hits
 
-    def fetch(self, ref: ScoreRef, *, fmt: Optional[str] = None) -> str:
-        """Fetch the tune's first ABC setting and write it to a temp ``.abc`` file."""
+    def fetch(
+        self, ref: ScoreRef, *, fmt: Optional[str] = None, max_bytes=UNSET
+    ) -> str:
+        """Fetch the tune's first ABC setting and write it to a temp ``.abc`` file.
+
+        ``max_bytes`` is checked before the file is written (no temp file leaks).
+        """
         data = self._get_json(f"{_BASE}/tunes/{ref.id}?format=json")
         settings = data.get("settings") or []
         if not settings:
@@ -101,6 +112,13 @@ class TheSessionSource(Source):
         if setting.get("key"):
             header += f"K:{setting['key']}\n"
         abc = header + (setting.get("abc", "") or "").replace("\r\n", "\n")
+        cap = self._cap(max_bytes)
+        size = len(abc.encode("utf-8"))
+        if cap is not None and size > cap:
+            raise ScoreTooLargeError(
+                f"thesession: tune {ref.id!r} is {size} bytes of ABC, over "
+                f"max_bytes={cap}. Pass a larger max_bytes, or max_bytes=None."
+            )
 
         fd, path = tempfile.mkstemp(suffix=".abc")
         os.close(fd)
