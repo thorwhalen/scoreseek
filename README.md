@@ -74,28 +74,31 @@ hits = scoreseek.search("star wars", allow_copyrighted=True)
 
 ### Choosing an IMSLP file (and not downloading 800 MB)
 
-An IMSLP hit is a whole work page: full scores, parts, arrangements, some of them
-hundreds of MB. Hits carry their `formats`, `ref.files()` lists every file with its
+An IMSLP hit is a whole work page: full scores, parts, arrangements and MIDI
+renditions, some of them hundreds of MB. Hits carry their `formats`, `ref.files()` lists every file with its
 kind and size, and `fetch` takes a size cap and a choice strategy:
 
 ```python
-from scoreseek.sources.imslp import smallest
+from scoreseek.picks import smallest
 
 ref = scoreseek.search("Symphony No.5", composer="Beethoven", sources=["imslp"])[0]
 ref.formats                      # ('pdf', 'zip')
 for f in ref.files():            # ScoreFile(filename, kind, size, license, section, ...)
     print(f.kind, f.size, f.section, f.filename)
 
-ref.fetch()                      # default: <= 50 MB, MIDI/MusicXML first, full score over parts
-ref.fetch(fmt="midi")            # only MIDI files
+ref.fetch()                      # default: <= 50 MB; a PD/CC0 file first, then MIDI/MusicXML,
+                                 # a score over a part, then IMSLP's page order
+ref.fetch(fmt="pdf")             # only PDFs (fmt="midi" raises if the page has no MIDI)
 ref.fetch(pick=smallest)         # a strategy: (List[ScoreFile]) -> ScoreFile
 ref.fetch(pick="PMLP01586-BH1826fsc.pdf")   # a filename from ref.files()
 ref.fetch(max_bytes=None)        # no cap
 ```
 
 When every candidate is over the cap, `fetch` raises `ScoreTooLargeError` naming
-the smallest ones. Set source-wide defaults with
-`IMSLPSource(max_bytes=..., pick=...)`.
+the smallest ones. If a file IMSLP lists without a size turns out too big while
+downloading, the next choice is tried. Set source-wide defaults with
+`IMSLPSource(max_bytes=..., pick=...)`. `max_bytes`/`pick` are IMSLP-only for now;
+another source's hit raises a `TypeError` naming the options it does take.
 
 ### Canonicalize a messy query (MusicBrainz)
 

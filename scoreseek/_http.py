@@ -65,11 +65,21 @@ def get_bytes(
 
 
 def _too_large(url: str, size: Optional[int], max_bytes: int) -> ScoreTooLargeError:
-    got = f"{size / MB:.1f} MB" if size is not None else "more than that"
+    got = human_size(size) if size is not None else "more than that"
     return ScoreTooLargeError(
-        f"{url} is {got}, over max_bytes={max_bytes} ({max_bytes / MB:.1f} MB). "
+        f"{url} is {got}, over max_bytes={max_bytes} ({human_size(max_bytes)}). "
         "Pass a larger max_bytes, or max_bytes=None for no cap."
     )
+
+
+def human_size(n: Optional[int]) -> str:
+    """``54841`` -> ``"53.6 KB"``, ``None`` -> ``"unknown size"`` (binary units)."""
+    if n is None:
+        return "unknown size"
+    for unit, scale in (("GB", 2**30), ("MB", MB), ("KB", 2**10)):
+        if n >= scale:
+            return f"{n / scale:.1f} {unit}"
+    return f"{n} B"
 
 
 def get_text(

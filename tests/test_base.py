@@ -35,3 +35,11 @@ def test_files_on_a_non_listing_source_raises():
         ref.files()
     with pytest.raises(NotImplementedError, match="cannot be listed"):
         ScoreRef(title="bare", source="none").files()
+
+
+def test_fetch_options_unsupported_by_source_are_named():
+    from scoreseek.sources import TheSessionSource
+
+    ref = TheSessionSource()._ref(title="x", id="1")
+    with pytest.raises(TypeError, match=r"'thesession' does not support .*'max_bytes'"):
+        ref.fetch(max_bytes=10)

@@ -174,6 +174,6 @@ def _unquote(value: str) -> str:
 
 def _title_from_path(path: str) -> str:
     """``"Abrams,_Harriett/_/The_Orphan's_Prayer"`` -> ``"The Orphan's Prayer"``;
-    a set member's ``"2_The_Ghost_Road"`` drops its ordinal."""
+    a set member's ``"2_The_Ghost_Road"`` / ``"7c_Havanaise"`` drops its ordinal."""
     leaf = path.rstrip("/").rsplit("/", 1)[-1]
-    return re.sub(r"^\d+_", "", leaf).replace("_", " ").strip()
+    return re.sub(r"^\d+[a-z]?_", "", leaf).replace("_", " ").strip()

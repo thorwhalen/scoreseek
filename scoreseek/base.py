@@ -13,6 +13,7 @@ or gray-licensed results (see :data:`COMMERCIAL_SAFE` / :data:`RESTRICTED`).
 
 from __future__ import annotations
 
+import inspect
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, List, Optional
@@ -116,8 +117,13 @@ class ScoreRef:
         Raises:
             NotImplementedError: If the originating source can't fetch (e.g. a
                 metadata-only source, or a bare ``ScoreRef`` with no source).
+            TypeError: If the source's ``fetch`` does not take one of ``options``
+                (the message names the ones it does take).
         """
-        return self._require_source("fetch", "fetched").fetch(self, fmt=fmt, **options)
+        source = self._require_source("fetch", "fetched")
+        if options:
+            _check_options(source.fetch, options, source=self.source)
+        return source.fetch(self, fmt=fmt, **options)
 
     def files(self) -> List[ScoreFile]:
         """List the downloadable files behind this hit, with kinds and sizes.
@@ -137,3 +143,17 @@ class ScoreRef:
                 f"{verb} (no {method}-capable source attached)."
             )
         return self._source_obj
+
+
+def _check_options(func, options: dict, *, source: str) -> None:
+    """Raise a clear ``TypeError`` if *func* cannot take every key of *options*."""
+    params = inspect.signature(func).parameters
+    if any(p.kind is p.VAR_KEYWORD for p in params.values()):
+        return
+    unsupported = sorted(set(options) - set(params))
+    if unsupported:
+        takes = sorted(n for n, p in params.items() if p.kind is p.KEYWORD_ONLY)
+        raise TypeError(
+            f"source {source!r} does not support fetch option(s) {unsupported} "
+            f"(its fetch takes: {takes})"
+        )

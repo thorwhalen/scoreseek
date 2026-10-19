@@ -324,7 +324,7 @@ def test_fetch_all_too_large_names_smallest(monkeypatch):
     with pytest.raises(ScoreTooLargeError) as e:
         ref.fetch(max_bytes=100_000)
     msg = str(e.value)
-    assert "PMLP1-flute-part.pdf (0.8 MB)" in msg
+    assert "PMLP1-flute-part.pdf (819.2 KB)" in msg
     assert msg.index("flute-part") < msg.index("full-score")  # smallest first
     assert "pick=" in msg and "max_bytes" in msg
 
@@ -392,11 +392,12 @@ def test_default_pick_prefers_known_size(monkeypatch):
 def test_size_does_not_leak_from_next_link():
     from scoreseek.sources.imslp import _parse_size
 
-    assert _parse_size(' <span class="preview">x</span> - 7.96MB, 87 pp.') == int(
-        7.96 * _MB
-    )
-    assert (
-        _parse_size(' <i>?</i> <a href="/wiki/File:other.pdf">#9</a> - 3.00MB') is None
+    size, bound = _parse_size(' <span class="preview">x</span> - 7.96MB, 87 pp.')
+    assert size == int(7.96 * _MB)
+    assert bound == int(7.965 * _MB)  # displayed to 0.01 MB: half a step of slack
+    assert _parse_size(' <i>?</i> <a href="/wiki/File:other.pdf">#9</a> - 3.00MB') == (
+        None,
+        None,
     )
 
 
@@ -418,3 +419,177 @@ def test_multi_file_block_and_heading_path():
     ]
     assert files[0]["section"] == "Arrangements / For Piano"
     assert files[2]["section"] == "Parts"  # a level-3 heading clears level 4
+
+
+def test_audio_section_midi_is_listed(monkeypatch):
+    # IMSLP keeps MIDI renditions with the recordings (review finding #1)
+    wikitext = (
+        "*****AUDIO*****\n===Synthesized/MIDI===\n"
+        "{{#fte:imslpaudio\n|File Name 1=PMLP1-perf.mp3\n|Copyright=Public Domain\n}}\n"
+        "{{#fte:imslpaudio\n|File Name 1=WIMA-w.mid\n|File Description 1=Synthesized\n"
+        "|Copyright=Public Domain\n}}\n"
+        "*****FILES*****\n{{#fte:imslpfile\n|File Name 1=PMLP1-score.pdf\n"
+        "|Copyright=Public Domain\n}}\n"
+    )
+    from scoreseek.sources.imslp import _parse_files
+
+    files = _parse_files(wikitext)
+    assert [(f["filename"], f["kind"]) for f in files] == [
+        ("PMLP1-score.pdf", "pdf"),
+        ("WIMA-w.mid", "midi"),  # the .mp3 is not a score file
+    ]
+    assert files[1]["section"] == "Synthesized/MIDI"
+
+
+def test_default_pick_prefers_safe_license_over_renderable(monkeypatch):
+    # a non-commercial MIDI must not displace a PD score in a default fetch
+    from scoreseek.base import ScoreFile
+    from scoreseek.picks import prefer_safe_renderable
+
+    nc_midi = ScoreFile("w.mid", "midi", 10, License.NONCOMMERCIAL)
+    pd_pdf = ScoreFile("w.pdf", "pdf", 10, License.PUBLIC_DOMAIN)
+    pd_midi = ScoreFile("v.mid", "midi", 10, License.PUBLIC_DOMAIN)
+    assert prefer_safe_renderable([nc_midi, pd_pdf]) is pd_pdf
+    assert prefer_safe_renderable([nc_midi, pd_pdf, pd_midi]) is pd_midi
+
+
+def test_is_part_ignores_partitur_and_partita():
+    from scoreseek.base import ScoreFile
+    from scoreseek.picks import is_part
+
+    assert is_part(ScoreFile("a", "pdf", section="Parts"))
+    assert is_part(ScoreFile("a", "pdf", description="Flute part"))
+    assert not is_part(ScoreFile("a", "pdf", description="Partitur"))
+    assert not is_part(ScoreFile("a", "pdf", section="Partita No.2"))
+    assert not is_part(ScoreFile("a", "pdf", section="Part-songs"))
+
+
+def test_listed_size_bound_is_used_for_the_cap(monkeypatch):
+    # displayed 0.05MB may really be up to 0.055MB: a cap of exactly the displayed
+    # size must not let it through only to trip the download (review finding #3)
+    files = [("PMLP1-a.pdf", "0.05MB", "1", "Complete Score")]
+    src, _ = _src(monkeypatch, files)
+    from scoreseek import ScoreTooLargeError
+
+    ref = src.search("Chopin")[0]
+    with pytest.raises(ScoreTooLargeError):
+        ref.fetch(max_bytes=int(0.05 * _MB))
+    with pytest.raises(ScoreTooLargeError):
+        ref.fetch(pick="PMLP1-a.pdf", max_bytes=int(0.05 * _MB))
+
+
+def test_strategy_falls_back_when_download_trips_cap(monkeypatch):
+    from scoreseek import ScoreTooLargeError
+
+    files = [
+        ("PMLP1-a.pdf", "?", "1", "Complete Score"),  # unknown size
+        ("PMLP1-b.pdf", "?", "2", "Complete Score"),
+    ]
+    src, _ = _src(monkeypatch, files)
+    tried = []
+
+    def fake_bytes(url, *, max_bytes=None):
+        tried.append(url)
+        if "IMSLP1-" in url:
+            raise ScoreTooLargeError("too big")
+        return b"%PDF-"
+
+    monkeypatch.setattr(src, "_get_bytes", fake_bytes)
+    path = src.search("Chopin")[0].fetch()
+    try:
+        assert ["IMSLP1-" in tried[0], "IMSLP2-" in tried[1]] == [True, True]
+    finally:
+        os.remove(path)
+
+
+def test_filename_pick_respects_fmt_and_none_pick_is_default(monkeypatch):
+    src, captured = _src(monkeypatch, _BIG_FIRST)
+    ref = src.search("Chopin")[0]
+    with pytest.raises(RuntimeError, match="is a pdf file, not midi"):
+        ref.fetch(fmt="midi", pick="PMLP1-full-score.pdf")
+    os.remove(ref.fetch(pick=None))  # None means the source default
+    assert "IMSLP2-" in captured["url"]
+
+
+def test_strategy_must_return_a_candidate(monkeypatch):
+    src, _ = _src(monkeypatch, _BIG_FIRST)
+    ref = src.search("Chopin")[0]
+    with pytest.raises(RuntimeError, match="not one of the candidate"):
+        ref.fetch(pick=lambda files: "PMLP1-full-score.pdf")
+    huge = ref.files()[0]
+    with pytest.raises(RuntimeError, match="not one of the candidate"):
+        ref.fetch(pick=lambda files: huge)  # over the cap: not a candidate
+
+
+def test_search_follows_redirects_and_dedupes(monkeypatch):
+    # review finding #2: redirect hits (empty snippet) pointed at their target
+    search = {
+        "query": {
+            "search": [
+                {"title": "Greensleeves (Vaughan Williams, Ralph)", "snippet": ""},
+                {"title": "Old Title (Vaughan Williams, Ralph)", "snippet": ""},
+                {"title": "Sir John in Love (Vaughan Williams, Ralph)", "snippet": "x"},
+            ]
+        }
+    }
+    target = "Sir John in Love (Vaughan Williams, Ralph)"
+    wikitext = (
+        "*****FILES*****\n{{#fte:imslpfile\n|File Name 1=PMLP9-s.pdf\n"
+        "|Copyright=Public Domain\n}}\n"
+    )
+    revisions = {
+        "query": {
+            "redirects": [
+                {"from": "Greensleeves (Vaughan Williams, Ralph)", "to": target},
+                {"from": "Old Title (Vaughan Williams, Ralph)", "to": target},
+            ],
+            "pages": {
+                "9": {
+                    "title": target,
+                    "revisions": [{"slots": {"main": {"*": wikitext}}}],
+                }
+            },
+        }
+    }
+    parse = {
+        "parse": {"text": {"*": '<a href="/wiki/File:PMLP9-s.pdf">#9</a> - 1.00MB'}}
+    }
+    seen = []
+
+    def mock(url):
+        seen.append(url)
+        if "list=search" in url:
+            return search
+        if "prop=revisions" in url:
+            assert "redirects=1" in url
+            return revisions
+        return parse
+
+    src = IMSLPSource()
+    monkeypatch.setattr(src, "_get_json", mock)
+    hits = src.search("Greensleeves")
+    assert len(hits) == 1  # three hits, one page
+    hit = hits[0]
+    assert hit.id == "Greensleeves (Vaughan Williams, Ralph)"
+    assert hit.metadata["page"] == target
+    assert hit.metadata["redirected_from"] == hit.id
+    assert hit.formats == ("pdf",)
+    assert [f.filename for f in hit.files()] == ["PMLP9-s.pdf"]
+
+
+def test_wikitexts_follows_continuation(monkeypatch):
+    first = {
+        "continue": {"rvcontinue": "2|x", "continue": "||"},
+        "query": {"pages": {"1": {"title": "A", "revisions": [{"*": "ta"}]}}},
+    }
+    second = {"query": {"pages": {"2": {"title": "B", "revisions": [{"*": "tb"}]}}}}
+    calls = []
+
+    def mock(url):
+        calls.append(url)
+        return second if "rvcontinue" in url else first
+
+    src = IMSLPSource()
+    monkeypatch.setattr(src, "_get_json", mock)
+    assert src._wikitexts(["A", "B"]) == {"A": ("A", "ta"), "B": ("B", "tb")}
+    assert len(calls) == 2

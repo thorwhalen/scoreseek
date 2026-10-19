@@ -113,6 +113,7 @@ def test_title_from_path_drops_set_ordinal():
         _title_from_path("Bantock,_Granville/Set/2_The_Ghost_Road") == "The Ghost Road"
     )
     assert _title_from_path("Abrams,_Harriett/_/Crazy_Jane") == "Crazy Jane"
+    assert _title_from_path("X/Set/7c_Havanaise") == "Havanaise"
 
 
 def test_parse_flat_yaml_unquotes_and_skips_nested():
