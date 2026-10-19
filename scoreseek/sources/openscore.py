@@ -23,7 +23,7 @@ from typing import List, Optional
 
 from scoreseek import _http
 from scoreseek._match import match_score
-from scoreseek.base import License, ScoreRef
+from scoreseek.base import DEFAULT_MAX_BYTES, License, ScoreRef
 from scoreseek.sources.base import Source
 
 _RAW = "https://raw.githubusercontent.com/OpenScore/Lieder/main"
@@ -47,6 +47,7 @@ class OpenScoreLiederSource(Source):
 
     name = "openscore_lieder"
     license = License.CC0
+    max_bytes = DEFAULT_MAX_BYTES  # downloads: capped by default
 
     def __init__(self, *, timeout: float = 15.0):
         self.timeout = timeout

@@ -14,6 +14,7 @@ or gray-licensed results (see :data:`COMMERCIAL_SAFE` / :data:`RESTRICTED`).
 from __future__ import annotations
 
 import inspect
+import os
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, List, Optional
@@ -46,6 +47,23 @@ RESTRICTED = frozenset({License.COPYRIGHTED, License.GRAY, License.NONCOMMERCIAL
 #: content, so it is not hidden, whereas a *known* restriction (NC/copyright/gray)
 #: is respected by the safe default.
 DEFAULT_VISIBLE = COMMERCIAL_SAFE | frozenset({License.UNKNOWN})
+
+
+#: Default ``max_bytes`` for a source that downloads (a full orchestral score
+#: scan can run to hundreds of MB; 50 MB keeps a casual fetch casual). Local
+#: corpora default to no cap: nothing is downloaded.
+DEFAULT_MAX_BYTES = 50 * 2**20
+
+
+class _Unset:
+    """Type of :data:`UNSET`."""
+
+    def __repr__(self):
+        return "UNSET"
+
+
+#: Sentinel for ``max_bytes``: "use the source's default" (``None`` means no cap).
+UNSET = _Unset()
 
 
 class ScoreTooLargeError(RuntimeError):
@@ -107,23 +125,68 @@ class ScoreRef:
         """True if this score's license permits redistribution/commercial use."""
         return self.license in COMMERCIAL_SAFE
 
-    def fetch(self, *, fmt: Optional[str] = None, **options):
+    def fetch(
+        self,
+        *,
+        fmt: Optional[str] = None,
+        max_bytes=UNSET,
+        pick=None,
+        **options,
+    ):
         """Retrieve the score content (returns a filesystem path).
 
         Delegates to the originating source. The returned path can be handed
-        straight to ``audiate.render(...)``. Extra keyword ``options`` are passed
-        through to the source (e.g. IMSLP's ``max_bytes=`` and ``pick=``).
+        straight to ``audiate.render(...)``. ``max_bytes`` and ``pick`` work for
+        every source, so a loop over mixed search results needs no branching.
+
+        Args:
+            fmt: Requested format (source-dependent, e.g. ``"midi"``).
+            max_bytes: Size cap in bytes. Default: the source's ``max_bytes``
+                (:data:`DEFAULT_MAX_BYTES` for sources that download, no cap for
+                local corpora). ``None``: no cap. A source that downloads applies
+                it while downloading; for the others the fetched file is checked.
+            pick: Which file to take when a hit has several (see :meth:`files`):
+                a ``filename``, or a strategy ``(List[ScoreFile]) -> ScoreFile``
+                (see :mod:`scoreseek.picks`). A source without :meth:`files` has
+                one file per hit: a strategy has nothing to choose there, and a
+                filename is an error.
+            **options: Passed through to the source's ``fetch``.
 
         Raises:
             NotImplementedError: If the originating source can't fetch (e.g. a
                 metadata-only source, or a bare ``ScoreRef`` with no source).
-            TypeError: If the source's ``fetch`` does not take one of ``options``
-                (the message names the ones it does take).
+            ScoreTooLargeError: The file exceeds ``max_bytes``.
+            TypeError: The source's ``fetch`` does not take one of ``options``
+                (the message names the ones it does take), or ``pick`` is a
+                filename for a source that lists no files.
         """
         source = self._require_source("fetch", "fetched")
+        _validate_max_bytes(max_bytes)
+        if isinstance(pick, ScoreFile):  # an entry from ref.files()
+            pick = pick.filename
         if options:
             _check_options(source.fetch, options, source=self.source)
-        return source.fetch(self, fmt=fmt, **options)
+        kwargs = dict(options)
+        # "native" only when fetch *names* the option: a **kwargs catch-all may
+        # silently ignore it, so the generic size check must still run then
+        native_cap = _names(source.fetch, "max_bytes")
+        if native_cap and max_bytes is not UNSET:
+            kwargs["max_bytes"] = max_bytes
+        if pick is not None:
+            if _names(source.fetch, "pick"):
+                kwargs["pick"] = pick
+            elif isinstance(pick, str):
+                raise TypeError(
+                    f"source {self.source!r} has one file per hit and lists no "
+                    f"files, so pick={pick!r} (a filename) cannot apply"
+                )
+        path = source.fetch(self, fmt=fmt, **kwargs)
+        if not native_cap:
+            cap = (
+                getattr(source, "max_bytes", None) if max_bytes is UNSET else max_bytes
+            )
+            _check_file_size(path, cap, source=self.source)
+        return path
 
     def files(self) -> List[ScoreFile]:
         """List the downloadable files behind this hit, with kinds and sizes.
@@ -156,4 +219,35 @@ def _check_options(func, options: dict, *, source: str) -> None:
         raise TypeError(
             f"source {source!r} does not support fetch option(s) {unsupported} "
             f"(its fetch takes: {takes})"
+        )
+
+
+def _names(func, name: str) -> bool:
+    """True if *func* has a parameter literally named ``name`` (not via ``**kw``)."""
+    try:
+        return name in inspect.signature(func).parameters
+    except (TypeError, ValueError):  # no inspectable signature: assume not
+        return False
+
+
+def _validate_max_bytes(max_bytes) -> None:
+    if max_bytes is UNSET or max_bytes is None:
+        return
+    if isinstance(max_bytes, bool) or not isinstance(max_bytes, int):
+        raise TypeError(f"max_bytes must be an int (bytes) or None, not {max_bytes!r}")
+    if max_bytes < 0:
+        raise ValueError(f"max_bytes must be >= 0, not {max_bytes}")
+
+
+def _check_file_size(path, max_bytes: Optional[int], *, source: str) -> None:
+    """Raise :class:`ScoreTooLargeError` if the file at *path* exceeds ``max_bytes``."""
+    if max_bytes is None or not isinstance(path, (str, os.PathLike)):
+        return
+    if not os.path.isfile(path):
+        return
+    size = os.path.getsize(path)
+    if size > max_bytes:
+        raise ScoreTooLargeError(
+            f"source {source!r}: {path} is {size} bytes, over max_bytes={max_bytes}. "
+            "Pass a larger max_bytes, or max_bytes=None for no cap."
         )

@@ -40,19 +40,21 @@ import warnings
 from typing import List, Optional
 
 from scoreseek import _http, picks
-from scoreseek.base import License, ScoreFile, ScoreRef, ScoreTooLargeError
+from scoreseek.base import (
+    DEFAULT_MAX_BYTES,
+    UNSET,
+    License,
+    ScoreFile,
+    ScoreRef,
+    ScoreTooLargeError,
+)
 from scoreseek.sources.base import Source
 
 _API = "https://imslp.org/api.php"
 _MIRRORS = ("vmirror.imslp.org", "ks15.imslp.org", "s9.imslp.org")
 
-#: Default size cap for :meth:`IMSLPSource.fetch` (a full orchestral score
-#: scan can run to hundreds of MB; 50 MB keeps a casual fetch casual).
-DEFAULT_MAX_BYTES = 50 * _http.MB
 #: MediaWiki's per-request cap on ``titles=`` for anonymous clients.
 _TITLES_PER_QUERY = 50
-#: Sentinel: "use the source's configured default" (``None`` means "no cap").
-_UNSET = object()
 
 #: A hit's page title looks like "Work Title (Surname, First)".
 _TITLE_RE = re.compile(r"^(.*) \(([^,]+), (.+)\)$")
@@ -333,7 +335,7 @@ class IMSLPSource(Source):
         ref: ScoreRef,
         *,
         fmt: Optional[str] = None,
-        max_bytes=_UNSET,
+        max_bytes=UNSET,
         pick=None,
     ) -> str:
         """Download one of *ref*'s files and return its cached path.
@@ -362,7 +364,7 @@ class IMSLPSource(Source):
             ScoreTooLargeError: Every candidate exceeds ``max_bytes`` (the message
                 names the smallest ones), or the chosen file does.
         """
-        max_bytes = self.max_bytes if max_bytes is _UNSET else max_bytes
+        max_bytes = self._cap(max_bytes)
         pick = self.pick if pick is None else pick
         files = self.files(ref)
         page = ref.metadata.get("page") or ref.id
