@@ -88,3 +88,39 @@ def test_search_missing_index_raises(tmp_path):
     with pytest.raises(FileNotFoundError) as e:
         src.search("anything")
     assert "PDMX.csv" in str(e.value)
+
+
+def _helvic(tmp_path):
+    src = PDMXSource(_make_corpus(tmp_path))
+    return src, next(h for h in src.search("Helvic") if h.title == "Helvic Head")
+
+
+def test_files_lists_mxl_then_mid_with_disk_sizes(tmp_path):
+    _, ref = _helvic(tmp_path)
+    files = ref.files()
+    assert [(f.filename, f.kind) for f in files] == [
+        ("QmABC.mxl", "musicxml"),
+        ("QmABC.mid", "midi"),
+    ]
+    assert files[0].size == len(b"PK\x03\x04fake")
+    assert files[1].size is None  # mid corpus not extracted
+
+
+def test_fetch_pick_by_filename_and_strategy(tmp_path):
+    src, ref = _helvic(tmp_path)
+    assert ref.fetch(pick="QmABC.mxl").endswith("QmABC.mxl")
+    with pytest.raises(FileNotFoundError, match="mid.tar.gz"):
+        ref.fetch(pick="QmABC.mid")
+    with pytest.raises(FileNotFoundError, match="mid.tar.gz"):
+        ref.fetch(pick=lambda files: files[1])
+    with pytest.raises(RuntimeError, match="is a musicxml file, not midi"):
+        ref.fetch(fmt="midi", pick="QmABC.mxl")
+
+
+def test_fetch_max_bytes(tmp_path):
+    from scoreseek import ScoreTooLargeError
+
+    _, ref = _helvic(tmp_path)
+    assert ref.fetch().endswith("QmABC.mxl")  # local corpus: no default cap
+    with pytest.raises(ScoreTooLargeError, match="Smallest: QmABC.mxl"):
+        ref.fetch(fmt="musicxml", max_bytes=2)

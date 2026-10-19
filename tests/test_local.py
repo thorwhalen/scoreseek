@@ -2,6 +2,8 @@
 
 import os
 
+import pytest
+
 from scoreseek.base import License
 from scoreseek.sources import LocalFolderSource
 
@@ -56,3 +58,13 @@ def test_license_is_applied_to_hits(tmp_path):
 def test_missing_root_is_empty(tmp_path):
     src = LocalFolderSource(tmp_path / "does_not_exist")
     assert src.search(limit=100) == []
+
+
+def test_fetch_max_bytes_checks_the_local_file(tmp_path):
+    from scoreseek import ScoreTooLargeError
+
+    (tmp_path / "big.mid").write_bytes(b"MThd" + b"x" * 100)
+    ref = LocalFolderSource(tmp_path).search("big")[0]
+    assert ref.fetch().endswith("big.mid")  # local: no default cap
+    with pytest.raises(ScoreTooLargeError):
+        ref.fetch(max_bytes=10)

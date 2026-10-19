@@ -26,7 +26,7 @@ import urllib.parse
 from typing import List, Optional
 
 from scoreseek import _http
-from scoreseek.base import License, ScoreRef
+from scoreseek.base import DEFAULT_MAX_BYTES, License, ScoreRef
 from scoreseek.sources.base import Source
 
 _DS = "ailsntua/Chordonomicon"
@@ -39,6 +39,7 @@ class ChordonomiconSource(Source):
 
     name = "chordonomicon"
     license = License.NONCOMMERCIAL
+    max_bytes = DEFAULT_MAX_BYTES  # downloads: capped by default
 
     def __init__(
         self, *, timeout: float = 20.0, retries: int = 3, retry_wait: float = 5.0

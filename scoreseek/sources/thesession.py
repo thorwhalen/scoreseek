@@ -15,7 +15,7 @@ import urllib.parse
 import urllib.request
 from typing import List, Optional
 
-from scoreseek.base import License, ScoreRef
+from scoreseek.base import DEFAULT_MAX_BYTES, License, ScoreRef
 from scoreseek.sources.base import Source
 
 _BASE = "https://thesession.org"
@@ -43,6 +43,7 @@ class TheSessionSource(Source):
 
     name = "thesession"
     license = License.PERMISSIVE  # CC-BY-SA 4.0
+    max_bytes = DEFAULT_MAX_BYTES  # downloads: capped by default
 
     def __init__(self, *, timeout: float = 15.0):
         self.timeout = timeout

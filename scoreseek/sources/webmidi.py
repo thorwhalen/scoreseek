@@ -24,7 +24,7 @@ from typing import Callable, Dict, Iterable, List, Optional, Tuple
 
 from scoreseek import _http
 from scoreseek._match import match_score
-from scoreseek.base import License, ScoreRef
+from scoreseek.base import DEFAULT_MAX_BYTES, License, ScoreRef
 from scoreseek.sources.base import Source
 
 #: Some of these sites refuse a library User-Agent; they serve a browser one.
@@ -148,6 +148,7 @@ class WebMidiSource(Source):
 
     name = "webmidi"
     license = License.GRAY
+    max_bytes = DEFAULT_MAX_BYTES  # downloads: capped by default
     uniform_license = True
 
     def __init__(

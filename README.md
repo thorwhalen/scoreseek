@@ -97,8 +97,20 @@ ref.fetch(max_bytes=None)        # no cap
 When every candidate is over the cap, `fetch` raises `ScoreTooLargeError` naming
 the smallest ones. If a file IMSLP lists without a size turns out too big while
 downloading, the next choice is tried. Set source-wide defaults with
-`IMSLPSource(max_bytes=..., pick=...)`. `max_bytes`/`pick` are IMSLP-only for now;
-another source's hit raises a `TypeError` naming the options it does take.
+`IMSLPSource(max_bytes=..., pick=...)`.
+
+`max_bytes` and `pick` work on **every** hit, so one loop serves mixed results:
+
+```python
+for ref in scoreseek.search("waltz"):
+    path = ref.fetch(max_bytes=5_000_000)   # ScoreTooLargeError if over
+```
+
+Sources that download (IMSLP, OpenScore, The Session, WebMidi, Chordonomicon)
+default to a 50 MB cap; local corpora (folders, PDMX, Lakh, Kaggle) to none. IMSLP
+caps the download as it streams; other sources check the fetched file. Hits with
+several files (IMSLP, PDMX's MusicXML + MIDI) support `ref.files()` and
+`pick=<filename>`; on a one-file source a pick strategy has nothing to choose.
 
 ### Canonicalize a messy query (MusicBrainz)
 
@@ -144,6 +156,11 @@ class MySource(Source):
         ...
         return "/path/to/score.musicxml"
 ```
+
+`ScoreRef.fetch` enforces `max_bytes` on the returned file for you (set a class
+attribute `max_bytes` for a default cap). Take `max_bytes` / `pick` in your own
+`fetch`, and implement `files(ref)`, when you can do better: cap a download while
+it streams, or choose among several files.
 
 ## License tags
 

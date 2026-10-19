@@ -32,7 +32,8 @@ from pathlib import Path
 from typing import List, Optional
 
 from scoreseek._match import match_score
-from scoreseek.base import License, ScoreRef
+from scoreseek import picks
+from scoreseek.base import UNSET, License, ScoreFile, ScoreRef
 from scoreseek.sources.base import Source
 
 _ZENODO = "https://zenodo.org/records/15571083"
@@ -138,26 +139,72 @@ class PDMXSource(Source):
                 break
         return hits
 
-    def fetch(self, ref: ScoreRef, *, fmt: Optional[str] = None) -> str:
+    def _local(self, rel: str) -> Path:
+        return self.root / rel.lstrip("./")
+
+    def files(self, ref: ScoreRef) -> List[ScoreFile]:
+        """*ref*'s MusicXML and MIDI files, MusicXML first (sizes from disk;
+        ``None`` until that corpus is extracted)."""
+        out = []
+        for col, kind in (("mxl", "musicxml"), ("mid", "midi")):
+            rel = ref.metadata.get(col)
+            if rel:
+                local = self._local(rel)
+                out.append(
+                    ScoreFile(
+                        filename=rel.rsplit("/", 1)[-1],
+                        kind=kind,
+                        size=local.stat().st_size if local.exists() else None,
+                        license=ref.license,
+                        metadata={"col": col, "rel": rel},
+                    )
+                )
+        return out
+
+    def fetch(
+        self,
+        ref: ScoreRef,
+        *,
+        fmt: Optional[str] = None,
+        max_bytes=UNSET,
+        pick=None,
+    ) -> str:
         """Return the local path to *ref*'s score file (no network).
 
+        With no ``fmt``/``pick`` this is the MusicXML file. ``pick`` (a filename
+        from :meth:`files`, or a strategy) chooses between MusicXML and MIDI;
+        ``max_bytes`` caps the file size (default: no cap -- nothing is
+        downloaded).
+
         Raises ``FileNotFoundError`` with the exact Zenodo tarball URL if the
-        corpus for the requested format hasn't been downloaded/extracted.
+        corpus for the chosen format hasn't been downloaded/extracted.
         """
-        col = _FMT_COL.get((fmt or "musicxml").lower())
-        if col is None:
-            raise ValueError(
-                f"PDMX: unsupported fmt {fmt!r} (use 'musicxml' or 'midi')"
+        max_bytes = self._cap(max_bytes)
+        if fmt is not None:
+            col = _FMT_COL.get(fmt.lower())
+            if col is None:
+                raise ValueError(
+                    f"PDMX: unsupported fmt {fmt!r} (use 'musicxml' or 'midi')"
+                )
+            # search() only indexes the mxl/mid paths, so only those are fetchable.
+            if not ref.metadata.get(col):
+                have = [k for k in ("mxl", "mid") if ref.metadata.get(k)]
+                raise ValueError(
+                    f"PDMX ref {ref.title!r} has no {col!r} file for fmt={fmt!r} "
+                    f"(available: {have})"
+                )
+        files = self.files(ref)
+        where = f"PDMX: {ref.title!r} "
+        if isinstance(pick, str):
+            chosen = picks.by_filename(
+                files, pick, fmt=fmt, max_bytes=max_bytes, where=where
             )
-        # search() only indexes the mxl/mid paths, so only those are fetchable.
-        rel = ref.metadata.get(col)
-        if not rel:
-            have = [k for k in ("mxl", "mid") if ref.metadata.get(k)]
-            raise ValueError(
-                f"PDMX ref {ref.title!r} has no {col!r} file for fmt={fmt!r} "
-                f"(available: {have})"
-            )
-        local = self.root / rel.lstrip("./")
+        else:
+            pool = picks.candidates(files, fmt=fmt, max_bytes=max_bytes, where=where)
+            # default: the listing order (MusicXML first), as before
+            chosen = picks.apply_pick(pick or (lambda fs: fs[0]), pool, where=where)
+        col = chosen.metadata["col"]
+        local = self._local(chosen.metadata["rel"])
         if not local.exists():
             tar = {"mxl": "mxl.tar.gz", "mid": "mid.tar.gz"}[col]
             raise FileNotFoundError(
