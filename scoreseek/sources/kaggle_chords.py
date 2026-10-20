@@ -31,7 +31,7 @@ from __future__ import annotations
 
 import os
 import re
-from functools import cached_property
+import threading
 from typing import Callable, List, Optional
 
 from scoreseek import _http
@@ -100,6 +100,8 @@ class KaggleChordsSource(Source):
         if index_path is None and index is None and dataset_loader is None:
             index_path = chords_index_path()
         self._index_path = index_path
+        self._index_lock = threading.Lock()
+        self._index_cache = None  # (file version, columns, row of id)
 
     @staticmethod
     def available() -> bool:
@@ -174,19 +176,26 @@ class KaggleChordsSource(Source):
             )
         return out
 
-    @cached_property
     def _index_columns(self) -> dict:
-        from sung.chords_index import read_columns
+        """The index's short columns, re-read when the file has been rebuilt."""
+        from sung.chords_index import index_version, read_columns
 
-        return read_columns(self._index_path)
+        version = index_version(self._index_path)
+        with self._index_lock:
+            if self._index_cache is None or self._index_cache[0] != version:
+                columns = read_columns(self._index_path)
+                row_of_id = {song_id: row for row, song_id in enumerate(columns["ids"])}
+                self._index_cache = (version, columns, row_of_id)
+            return self._index_cache[1]
 
-    @cached_property
-    def _index_row_of_id(self) -> dict:
-        return {song_id: row for row, song_id in enumerate(self._index_columns["ids"])}
+    def _index_row(self, song_id: str):
+        """``song_id``'s row in the index, from the same read as the columns."""
+        self._index_columns()
+        return self._index_cache[2].get(song_id)
 
     def _search_chords_index(self, title, composer, *, limit) -> List[ScoreRef]:
         """The DataFrame search, over the index's columns: same hits, same order."""
-        columns = self._index_columns
+        columns = self._index_columns()
         title, composer = title.casefold(), composer.casefold()
         out = []
         names = ("ids", "titles", "artists", "langs", "popularity")
@@ -236,7 +245,7 @@ class KaggleChordsSource(Source):
         elif self._index_path is not None:
             from sung.chords_index import read_chart
 
-            row = self._index_row_of_id.get(str(ref.id))
+            row = self._index_row(str(ref.id))
             if row is None:
                 raise KeyError(f"Kaggle chords: no row with id={ref.id!r}")
             text = read_chart(self._index_path, row)

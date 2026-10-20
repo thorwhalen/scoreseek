@@ -213,3 +213,18 @@ def test_the_default_index_is_found_through_sung(sung_index, monkeypatch):
     assert kaggle_chords.chords_index_path() == sung_index
     assert KaggleChordsSource()._index_path == sung_index
     assert KaggleChordsSource.available()
+
+
+def test_a_rebuilt_sung_index_is_reread(sung_index, tmp_path, monkeypatch):
+    from sung import chords_index
+
+    monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path / "cache"))
+    light = KaggleChordsSource(index_path=sung_index)
+    assert light.search(title="hallelujah", composer="cohen")
+    swapped = _DF.iloc[::-1].reset_index(drop=True)  # same songs, other rows
+    chords_index.build_chords_index(
+        sung_index, rows=chords_index.dataframe_rows(swapped)
+    )
+    (ref,) = light.search(title="hallelujah", composer="cohen")
+    with open(light.fetch(ref), encoding="utf-8") as f:
+        assert "secret chord" in f.read()
