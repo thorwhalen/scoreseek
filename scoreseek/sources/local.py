@@ -61,9 +61,7 @@ def title_and_artist(stem: str) -> tuple[str, str]:
     return (title, artist) if sep else (stem, "")
 
 
-def scan_folder(
-    root, *, formats: Mapping[str, str] = SCORE_FORMATS
-) -> Iterator[dict]:
+def scan_folder(root, *, formats: Mapping[str, str] = SCORE_FORMATS) -> Iterator[dict]:
     """Yield one entry per file under ``root`` whose extension is in ``formats``.
 
     Each entry has ``id`` (the path relative to ``root``), ``path``, ``stem``,
