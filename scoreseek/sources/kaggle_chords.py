@@ -16,21 +16,22 @@ before registering. License is a community scrape of e-chords ->
 The corpus does **not** contain most copyrighted show tunes -- e.g. "You'll Be
 Back" (Hamilton) is verified absent -- so expect misses on recent musical theatre.
 
-**The light path: songleaf's index.** Holding the corpus as a DataFrame takes
-about 1.1 GB per process. ``songleaf`` keeps a SQLite+FTS5 index of the same
-corpus (``songleaf build-index``, tens of MB in memory) with the same song ids.
-When ``songleaf`` is importable and its index has been built, this source reads
-the index instead of the DataFrame: search is then songleaf's fuzzy title/artist
-match (scores in [0, 1]) rather than a substring match, and :meth:`fetch` writes
-the chart re-rendered from the parsed song (``songleaf.export.to_text``) rather
-than the raw row. Pass ``index=`` to choose one, or ``dataset_loader=`` to force
-the DataFrame.
+**The light path: the corpus index.** Holding the corpus as a DataFrame takes
+about 1.1 GB per process. ``sung.chords_index`` keeps a SQLite+FTS5 index of the
+same corpus (built once, by ``songleaf build-index`` or
+``sung.chords_index.build_chords_index``) with the same song ids, read with the
+standard library alone. When one is found (:func:`chords_index_path`), this
+source reads it instead of the DataFrame, with the same search (substring over
+title and artist) and the same fetched text (the row's chart verbatim). Pass
+``index_path=`` to choose the file, ``dataset_loader=`` to force the DataFrame,
+or ``index=`` for a songleaf-style ranked index (``songleaf.kaggle_index``).
 """
 
 from __future__ import annotations
 
 import os
 import re
+from functools import cached_property
 from typing import Callable, List, Optional
 
 from scoreseek import _http
@@ -41,20 +42,30 @@ from scoreseek.sources.base import Source
 _DATASET_URL = "https://www.kaggle.com/datasets/eitanbentora/chords-and-lyrics-dataset"
 
 
-def songleaf_kaggle_index():
-    """songleaf's index of the Kaggle corpus if songleaf is installed and the index built, else None.
+def chords_index_path() -> Optional[str]:
+    """The corpus index file, if there is one here: sung's, else songleaf's.
 
-    Importing ``songleaf.kaggle_index`` imports neither ``sung`` nor ``pandas``.
+    ``sung.chords_index.local_chords_index`` (``$SUNG_CHORDS_INDEX``, or beside
+    the corpus zip), then where songleaf keeps the index it builds. Neither
+    lookup imports pandas.
     """
     try:
-        from songleaf.kaggle_index import KaggleChordsIndex, kaggle_index_path
+        from sung.chords_index import local_chords_index
 
-        path = kaggle_index_path()
+        path = local_chords_index()
     except Exception:
-        # Broad on purpose: a missing or misconfigured songleaf (or its dataset
-        # store) only means "no index here"; the DataFrame path still works.
-        return None
-    return KaggleChordsIndex(path) if os.path.isfile(path) else None
+        # Broad on purpose: a missing sung, or $SUNG_CHORDS_INDEX naming no file,
+        # only means "no sung index here"; the other places still count.
+        path = None
+    if path is None:
+        try:
+            from songleaf.kaggle_index import kaggle_index_path
+
+            path = kaggle_index_path()
+        except Exception:
+            # Broad on purpose, as above: no songleaf, or its dataset store misconfigured.
+            return None
+    return path if os.path.isfile(path) else None
 
 
 class KaggleChordsSource(Source):
@@ -65,31 +76,39 @@ class KaggleChordsSource(Source):
             injection for tests). Defaults to
             ``sung.chords_and_lyrics.get_lyrics_and_chords_dataset``, imported
             lazily on first use.
-        index: A songleaf-style source of the same corpus: ``search(title=,
-            artist=, limit=)`` returning hits with ``id``, ``title``, ``artist``,
-            ``score`` and ``meta``, and ``get(id)`` returning a song that
-            ``songleaf.export.to_text`` renders. Defaults to songleaf's
-            ``KaggleChordsIndex`` when it is importable and built, unless a
-            ``dataset_loader`` is given.
+        index_path: A ``sung.chords_index`` file to read instead of the
+            DataFrame. Defaults to :func:`chords_index_path` unless a
+            ``dataset_loader`` or an ``index`` is given.
+        index: A songleaf-style ranked source of the same corpus:
+            ``search(title=, artist=, limit=)`` returning hits with ``id``,
+            ``title``, ``artist``, ``score`` and ``meta``, and ``get(id)``
+            returning a song that ``songleaf.export.to_text`` renders.
     """
 
     name = "kaggle_chords"
     license = License.GRAY
 
-    def __init__(self, *, dataset_loader: Optional[Callable] = None, index=None):
+    def __init__(
+        self,
+        *,
+        dataset_loader: Optional[Callable] = None,
+        index=None,
+        index_path: Optional[str] = None,
+    ):
         self._loader = dataset_loader
-        if index is None and dataset_loader is None:
-            index = songleaf_kaggle_index()
         self._index = index
+        if index_path is None and index is None and dataset_loader is None:
+            index_path = chords_index_path()
+        self._index_path = index_path
 
     @staticmethod
     def available() -> bool:
-        """True if songleaf's index is built, or ``sung`` + its Kaggle stack import.
+        """True if a corpus index is here, or ``sung`` + its Kaggle stack import.
 
         Catches both ``ImportError`` (missing deps) and ``OSError`` (``haggle``
         authenticates against Kaggle *at import time*, even for cache hits).
         """
-        if songleaf_kaggle_index() is not None:
+        if chords_index_path() is not None:
             return True
         try:
             from sung.chords_and_lyrics import (  # noqa: F401
@@ -116,6 +135,8 @@ class KaggleChordsSource(Source):
             return []
         if self._index is not None:
             return self._search_index(needle_title, composer, limit=limit)
+        if self._index_path is not None:
+            return self._search_chords_index(needle_title, composer, limit=limit)
         df = self._dataset()
         mask = None
         if needle_title:
@@ -153,6 +174,40 @@ class KaggleChordsSource(Source):
             )
         return out
 
+    @cached_property
+    def _index_columns(self) -> dict:
+        from sung.chords_index import read_columns
+
+        return read_columns(self._index_path)
+
+    @cached_property
+    def _index_row_of_id(self) -> dict:
+        return {song_id: row for row, song_id in enumerate(self._index_columns["ids"])}
+
+    def _search_chords_index(self, title, composer, *, limit) -> List[ScoreRef]:
+        """The DataFrame search, over the index's columns: same hits, same order."""
+        columns = self._index_columns
+        title, composer = title.casefold(), composer.casefold()
+        out = []
+        names = ("ids", "titles", "artists", "langs", "popularity")
+        for song_id, name, artist, lang, pop in zip(*(columns[k] for k in names)):
+            if len(out) >= limit:
+                break
+            if title not in name.casefold() or composer not in artist.casefold():
+                continue
+            out.append(
+                self._ref(
+                    title=name,
+                    id=song_id,
+                    composer=artist,
+                    formats=("text",),
+                    url=_DATASET_URL,
+                    score=pop / 100.0,
+                    metadata={"artist_name": artist, "popularity": pop, "lang": lang},
+                )
+            )
+        return out
+
     def _search_index(self, title, composer, *, limit) -> List[ScoreRef]:
         hits = self._index.search(title=title, artist=composer, limit=limit)
         return [
@@ -171,13 +226,20 @@ class KaggleChordsSource(Source):
     def fetch(self, ref: ScoreRef, *, fmt: Optional[str] = None) -> str:
         """Write the song's chords-over-lyrics text to a ``.txt`` file.
 
-        From the DataFrame, the row's text verbatim; from an index, the chart
-        re-rendered from the parsed song.
+        From the DataFrame or the corpus index, the row's text verbatim; from a
+        songleaf-style ``index``, the chart re-rendered from the parsed song.
         """
         if self._index is not None:
             from songleaf.export import to_text
 
             text = to_text(self._index.get(str(ref.id)))
+        elif self._index_path is not None:
+            from sung.chords_index import read_chart
+
+            row = self._index_row_of_id.get(str(ref.id))
+            if row is None:
+                raise KeyError(f"Kaggle chords: no row with id={ref.id!r}")
+            text = read_chart(self._index_path, row)
         else:
             df = self._dataset()
             sel = df[df["Unnamed: 0"] == int(ref.id)]

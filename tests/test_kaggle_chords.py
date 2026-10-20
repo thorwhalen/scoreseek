@@ -141,7 +141,8 @@ def test_an_index_is_searched_instead_of_the_dataframe():
 
 
 def test_a_dataframe_loader_means_no_default_index():
-    assert KaggleChordsSource(dataset_loader=lambda: _DF)._index is None
+    src = KaggleChordsSource(dataset_loader=lambda: _DF)
+    assert src._index is None and src._index_path is None
 
 
 def test_songleaf_index_round_trip(tmp_path, monkeypatch):
@@ -155,3 +156,60 @@ def test_songleaf_index_round_trip(tmp_path, monkeypatch):
     monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path / "cache"))
     with open(src.fetch(hits[0]), encoding="utf-8") as f:
         assert "secret chord" in f.read()
+
+
+# --- the corpus index in sung (thorwhalen/sung#17) ----------------------------
+
+
+@pytest.fixture
+def sung_index(tmp_path):
+    chords_index = pytest.importorskip("sung.chords_index")
+    path = str(tmp_path / chords_index.INDEX_NAME)
+    chords_index.build_chords_index(path, rows=chords_index.dataframe_rows(_DF))
+    return path
+
+
+def _as_tuples(refs):
+    return [(r.id, r.title, r.composer, r.score) for r in refs]
+
+
+@pytest.mark.parametrize(
+    "query",
+    [
+        dict(title="hallelujah"),
+        dict(composer="cohen"),
+        dict(title="hallelujah", composer="cohen"),
+        dict(title="zzz"),
+        dict(title="", composer=""),
+    ],
+)
+def test_the_sung_index_searches_like_the_dataframe(sung_index, query):
+    def no_dataframe():
+        raise AssertionError("the DataFrame must not load when an index is read")
+
+    light = KaggleChordsSource(index_path=sung_index)
+    light._loader = no_dataframe
+    heavy = KaggleChordsSource(dataset_loader=lambda: _DF)
+    assert _as_tuples(light.search(**query)) == _as_tuples(heavy.search(**query))
+
+
+def test_the_sung_index_fetches_the_row_verbatim(sung_index, tmp_path, monkeypatch):
+    monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path / "cache"))
+    light = KaggleChordsSource(index_path=sung_index)
+    heavy = KaggleChordsSource(dataset_loader=lambda: _DF)
+    (ref,) = light.search(title="hallelujah", composer="cohen", limit=1)
+    with open(light.fetch(ref), encoding="utf-8") as a:
+        light_text = a.read()
+    with open(heavy.fetch(ref), encoding="utf-8") as b:
+        assert light_text == b.read()
+    with pytest.raises(KeyError):
+        light.fetch(light._ref(title="x", id="424242"))
+
+
+def test_the_default_index_is_found_through_sung(sung_index, monkeypatch):
+    from scoreseek.sources import kaggle_chords
+
+    monkeypatch.setenv("SUNG_CHORDS_INDEX", sung_index)
+    assert kaggle_chords.chords_index_path() == sung_index
+    assert KaggleChordsSource()._index_path == sung_index
+    assert KaggleChordsSource.available()
