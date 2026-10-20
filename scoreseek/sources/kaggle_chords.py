@@ -38,9 +38,7 @@ from scoreseek.base import License, ScoreRef
 from scoreseek.sources.base import Source
 
 
-_DATASET_URL = (
-    "https://www.kaggle.com/datasets/eitanbentora/chords-and-lyrics-dataset"
-)
+_DATASET_URL = "https://www.kaggle.com/datasets/eitanbentora/chords-and-lyrics-dataset"
 
 
 def songleaf_kaggle_index():
