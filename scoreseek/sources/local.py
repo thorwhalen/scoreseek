@@ -21,9 +21,8 @@ from typing import List, Optional
 from scoreseek.base import License, ScoreRef
 from scoreseek.sources.base import Source
 
-#: File extensions treated as scores, mapped to a format label. The one table for
-#: score files on disk: notation formats, plus tab and print formats (Guitar Pro,
-#: MuseScore, PDF) a site lets a user export.
+#: Notation file extensions, mapped to a format label: what ``LocalFolderSource``
+#: indexes. Keys are lowercase (``scan_folder`` lowercases each file's extension).
 SCORE_FORMATS = {
     ".mid": "midi",
     ".midi": "midi",
@@ -34,6 +33,12 @@ SCORE_FORMATS = {
     ".krn": "kern",
     ".kern": "kern",
     ".mei": "mei",
+}
+
+#: Tab and print formats a chords/score site lets a user export (Guitar Pro,
+#: MuseScore, PDF). Not indexed by default (``audiate`` cannot render them); pass
+#: ``formats={**SCORE_FORMATS, **EXPORT_FORMATS}`` to ``scan_folder`` to include them.
+EXPORT_FORMATS = {
     ".mscz": "musescore",
     ".gp": "guitarpro",
     ".gpx": "guitarpro",
@@ -72,7 +77,7 @@ def scan_folder(
     >>> [(e["id"], e["format"], e["title"], e["artist"]) for e in scan_folder(root)]
     [('Nobody - Paper Boats.mid', 'midi', 'Paper Boats', 'Nobody')]
     """
-    root = os.path.expanduser(str(root))
+    root = os.path.expanduser(str(root))  # ``formats`` keys must be lowercase
     for dirpath, _dirs, files in os.walk(root):
         for fname in sorted(files):
             stem, ext = os.path.splitext(fname)

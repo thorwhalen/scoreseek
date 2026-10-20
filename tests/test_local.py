@@ -70,11 +70,15 @@ def test_fetch_max_bytes_checks_the_local_file(tmp_path):
         ref.fetch(max_bytes=10)
 
 
-def test_exported_tab_and_print_formats_are_scores(tmp_path):
-    """One format table (scoreseek#7): songleaf's Guitar Pro/MuseScore/PDF too."""
+def test_export_formats_are_opt_in(tmp_path):
+    """Guitar Pro/MuseScore/PDF are only scanned when asked for (scoreseek#7)."""
+    from scoreseek.sources.local import EXPORT_FORMATS, SCORE_FORMATS, scan_folder
+
     for name in ("Song.gp5", "Song.mscz", "Song.pdf"):
         (tmp_path / name).write_bytes(b"")
-    formats = {h.formats[0] for h in LocalFolderSource(tmp_path).search(limit=10)}
+    assert LocalFolderSource(tmp_path).search(limit=10) == []
+    both = {**SCORE_FORMATS, **EXPORT_FORMATS}
+    formats = {e["format"] for e in scan_folder(tmp_path, formats=both)}
     assert formats == {"guitarpro", "musescore", "pdf"}
 
 
