@@ -15,16 +15,48 @@ before registering. License is a community scrape of e-chords ->
 
 The corpus does **not** contain most copyrighted show tunes -- e.g. "You'll Be
 Back" (Hamilton) is verified absent -- so expect misses on recent musical theatre.
+
+**The light path: songleaf's index.** Holding the corpus as a DataFrame takes
+about 1.1 GB per process. ``songleaf`` keeps a SQLite+FTS5 index of the same
+corpus (``songleaf build-index``, tens of MB in memory) with the same song ids.
+When ``songleaf`` is importable and its index has been built, this source reads
+the index instead of the DataFrame: search is then songleaf's fuzzy title/artist
+match (scores in [0, 1]) rather than a substring match, and :meth:`fetch` writes
+the chart re-rendered from the parsed song (``songleaf.export.to_text``) rather
+than the raw row. Pass ``index=`` to choose one, or ``dataset_loader=`` to force
+the DataFrame.
 """
 
 from __future__ import annotations
 
+import os
 import re
 from typing import Callable, List, Optional
 
 from scoreseek import _http
 from scoreseek.base import License, ScoreRef
 from scoreseek.sources.base import Source
+
+
+_DATASET_URL = (
+    "https://www.kaggle.com/datasets/eitanbentora/chords-and-lyrics-dataset"
+)
+
+
+def songleaf_kaggle_index():
+    """songleaf's index of the Kaggle corpus if songleaf is installed and the index built, else None.
+
+    Importing ``songleaf.kaggle_index`` imports neither ``sung`` nor ``pandas``.
+    """
+    try:
+        from songleaf.kaggle_index import KaggleChordsIndex, kaggle_index_path
+
+        path = kaggle_index_path()
+    except Exception:
+        # Broad on purpose: a missing or misconfigured songleaf (or its dataset
+        # store) only means "no index here"; the DataFrame path still works.
+        return None
+    return KaggleChordsIndex(path) if os.path.isfile(path) else None
 
 
 class KaggleChordsSource(Source):
@@ -35,21 +67,32 @@ class KaggleChordsSource(Source):
             injection for tests). Defaults to
             ``sung.chords_and_lyrics.get_lyrics_and_chords_dataset``, imported
             lazily on first use.
+        index: A songleaf-style source of the same corpus: ``search(title=,
+            artist=, limit=)`` returning hits with ``id``, ``title``, ``artist``,
+            ``score`` and ``meta``, and ``get(id)`` returning a song that
+            ``songleaf.export.to_text`` renders. Defaults to songleaf's
+            ``KaggleChordsIndex`` when it is importable and built, unless a
+            ``dataset_loader`` is given.
     """
 
     name = "kaggle_chords"
     license = License.GRAY
 
-    def __init__(self, *, dataset_loader: Optional[Callable] = None):
+    def __init__(self, *, dataset_loader: Optional[Callable] = None, index=None):
         self._loader = dataset_loader
+        if index is None and dataset_loader is None:
+            index = songleaf_kaggle_index()
+        self._index = index
 
     @staticmethod
     def available() -> bool:
-        """True if ``sung`` + its Kaggle stack import and authenticate.
+        """True if songleaf's index is built, or ``sung`` + its Kaggle stack import.
 
         Catches both ``ImportError`` (missing deps) and ``OSError`` (``haggle``
         authenticates against Kaggle *at import time*, even for cache hits).
         """
+        if songleaf_kaggle_index() is not None:
+            return True
         try:
             from sung.chords_and_lyrics import (  # noqa: F401
                 get_lyrics_and_chords_dataset,
@@ -73,6 +116,8 @@ class KaggleChordsSource(Source):
         needle_title = (title or query).strip()
         if not needle_title and not composer:
             return []
+        if self._index is not None:
+            return self._search_index(needle_title, composer, limit=limit)
         df = self._dataset()
         mask = None
         if needle_title:
@@ -97,7 +142,7 @@ class KaggleChordsSource(Source):
                     id=str(int(row["Unnamed: 0"])),
                     composer=str(row.get("artist_name", "")),
                     formats=("text",),
-                    url="https://www.kaggle.com/datasets/eitanbentora/chords-and-lyrics-dataset",
+                    url=_DATASET_URL,
                     score=score,
                     metadata={
                         "artist_name": row.get("artist_name"),
@@ -110,13 +155,37 @@ class KaggleChordsSource(Source):
             )
         return out
 
+    def _search_index(self, title, composer, *, limit) -> List[ScoreRef]:
+        hits = self._index.search(title=title, artist=composer, limit=limit)
+        return [
+            self._ref(
+                title=hit.title,
+                id=str(hit.id),
+                composer=hit.artist,
+                formats=("text",),
+                url=_DATASET_URL,
+                score=float(hit.score),
+                metadata={"artist_name": hit.artist, **(hit.meta or {})},
+            )
+            for hit in hits
+        ]
+
     def fetch(self, ref: ScoreRef, *, fmt: Optional[str] = None) -> str:
-        """Write the row's chords-over-lyrics text verbatim to a ``.txt`` file."""
-        df = self._dataset()
-        sel = df[df["Unnamed: 0"] == int(ref.id)]
-        if sel.empty:
-            raise KeyError(f"Kaggle chords: no row with id={ref.id!r}")
-        text = sel.iloc[0]["chords&lyrics"]
+        """Write the song's chords-over-lyrics text to a ``.txt`` file.
+
+        From the DataFrame, the row's text verbatim; from an index, the chart
+        re-rendered from the parsed song.
+        """
+        if self._index is not None:
+            from songleaf.export import to_text
+
+            text = to_text(self._index.get(str(ref.id)))
+        else:
+            df = self._dataset()
+            sel = df[df["Unnamed: 0"] == int(ref.id)]
+            if sel.empty:
+                raise KeyError(f"Kaggle chords: no row with id={ref.id!r}")
+            text = sel.iloc[0]["chords&lyrics"]
         out = _http.cache_dir("kaggle_chords") / f"kaggle_{ref.id}.txt"
         out.write_text(str(text), encoding="utf-8")
         return str(out)
