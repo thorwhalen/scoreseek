@@ -68,3 +68,33 @@ def test_fetch_max_bytes_checks_the_local_file(tmp_path):
     assert ref.fetch().endswith("big.mid")  # local: no default cap
     with pytest.raises(ScoreTooLargeError):
         ref.fetch(max_bytes=10)
+
+
+def test_export_formats_are_opt_in(tmp_path):
+    """Guitar Pro/MuseScore/PDF are only scanned when asked for (scoreseek#7)."""
+    from scoreseek.sources.local import EXPORT_FORMATS, SCORE_FORMATS, scan_folder
+
+    for name in ("Song.gp5", "Song.mscz", "Song.pdf"):
+        (tmp_path / name).write_bytes(b"")
+    assert LocalFolderSource(tmp_path).search(limit=10) == []
+    both = {**SCORE_FORMATS, **EXPORT_FORMATS}
+    formats = {e["format"] for e in scan_folder(tmp_path, formats=both)}
+    assert formats == {"guitarpro", "musescore", "pdf"}
+
+
+def test_scan_folder_takes_a_format_table(tmp_path):
+    from scoreseek.sources.local import SCORE_FORMATS, scan_folder
+
+    _make_scores(tmp_path)
+    (tmp_path / "Nobody - Paper Boats.txt").write_text("C\nla la la")
+    with_text = {**SCORE_FORMATS, ".txt": "text"}
+    entries = {e["id"]: e for e in scan_folder(tmp_path, formats=with_text)}
+    assert len(entries) == 5  # the 3 scores + both .txt files
+    boats = entries["Nobody - Paper Boats.txt"]
+    assert (boats["title"], boats["artist"], boats["format"]) == (
+        "Paper Boats",
+        "Nobody",
+        "text",
+    )
+    assert entries[os.path.join("jigs", "Morrisons Jig.abc")]["ext"] == ".abc"
+    assert list(scan_folder(tmp_path / "missing")) == []
