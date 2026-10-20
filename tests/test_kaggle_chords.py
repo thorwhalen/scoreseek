@@ -103,3 +103,55 @@ def test_fetch_unknown_id_raises():
     ref = src._ref(title="x", id="424242")
     with pytest.raises(KeyError):
         src.fetch(ref)
+
+
+# --- the light path: an index of the same corpus (scoreseek#3) ---------------
+
+
+class _FakeHit:
+    def __init__(self, id, title, artist, score, meta=None):
+        self.id, self.title, self.artist, self.score = id, title, artist, score
+        self.meta = meta or {}
+
+
+class _FakeIndex:
+    def __init__(self):
+        self.calls = []
+
+    def search(self, *, title="", artist="", limit=10):
+        self.calls.append((title, artist, limit))
+        return [_FakeHit("38313", "Hallelujah", "Leonard Cohen", 0.9, {"lang": "en"})]
+
+
+def test_an_index_is_searched_instead_of_the_dataframe():
+    def no_dataframe():
+        raise AssertionError("the DataFrame must not load when an index is given")
+
+    index = _FakeIndex()
+    src = KaggleChordsSource(dataset_loader=no_dataframe, index=index)
+    (ref,) = src.search(title="Hallelujah", composer="Cohen", limit=3)
+    assert index.calls == [("Hallelujah", "Cohen", 3)]
+    assert (ref.id, ref.title, ref.composer, ref.score) == (
+        "38313",
+        "Hallelujah",
+        "Leonard Cohen",
+        0.9,
+    )
+    assert ref.metadata == {"artist_name": "Leonard Cohen", "lang": "en"}
+
+
+def test_a_dataframe_loader_means_no_default_index():
+    assert KaggleChordsSource(dataset_loader=lambda: _DF)._index is None
+
+
+def test_songleaf_index_round_trip(tmp_path, monkeypatch):
+    kaggle_index = pytest.importorskip("songleaf.kaggle_index")
+    pytest.importorskip("songleaf.export")
+    path = str(tmp_path / "index.sqlite")
+    kaggle_index.build_kaggle_index(path=path, loader=lambda: _DF)
+    src = KaggleChordsSource(index=kaggle_index.KaggleChordsIndex(path))
+    hits = src.search(title="Hallelujah", composer="Leonard Cohen")
+    assert [h.id for h in hits] == ["38313"]
+    monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path / "cache"))
+    with open(src.fetch(hits[0]), encoding="utf-8") as f:
+        assert "secret chord" in f.read()
