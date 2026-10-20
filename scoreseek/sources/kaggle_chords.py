@@ -98,8 +98,8 @@ class KaggleChordsSource(Source):
 
             return True
         except Exception:
-            # Broad on purpose: importing sung pulls spotipy, and haggle
-            # authenticates against Kaggle at import time (ImportError/OSError).
+            # Broad on purpose: a missing sung or haggle is an ImportError, and
+            # haggle authenticates against Kaggle at import time (OSError).
             return False
 
     def _dataset(self):
