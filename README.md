@@ -11,9 +11,7 @@ path = ref.fetch()  # -> a local .abc file
 # hand straight to audiate.render(path) to hear it
 ```
 
-Every hit is a license-tagged `ScoreRef`, so **public-domain / permissive**
-results stay cleanly separated from **copyrighted / gray** ones — searches are
-copyright-safe by default.
+Every hit is a license-tagged `ScoreRef`, so **public-domain / permissive** results stay cleanly separated from **copyrighted / gray** ones — searches are copyright-safe by default.
 
 ## Install
 
@@ -24,16 +22,11 @@ pip install "scoreseek[render]"      # + audiate, to render hits to audio
 
 ## Why
 
-Scores live in many places — public-domain corpora (PDMX, IMSLP, OpenScore),
-downloadable datasets, chord/lyric collections, and your own folders. `scoreseek`
-puts them behind **one pluggable-source interface** and tags every result with a
-license, so you can ask for "only what I can legally build on" or opt into
-copyrighted material explicitly.
+Scores live in many places — public-domain corpora (PDMX, IMSLP, OpenScore), downloadable datasets, chord/lyric collections, and your own folders. `scoreseek` puts them behind **one pluggable-source interface** and tags every result with a license, so you can ask for "only what I can legally build on" or opt into copyrighted material explicitly.
 
 ## Sources
 
-A *source* answers `search(query) -> [ScoreRef]` and optionally `fetch(ref) -> path`.
-Register any object with that shape.
+A *source* answers `search(query) -> [ScoreRef]` and optionally `fetch(ref) -> path`. Register any object with that shape.
 
 **On by default** (zero-config, lightweight, cleanly licensed):
 
@@ -74,10 +67,9 @@ hits = scoreseek.search("star wars", allow_copyrighted=True)
 
 ### Choosing an IMSLP file (and not downloading 800 MB)
 
-An IMSLP hit is a whole work page: full scores, parts, arrangements and MIDI
-renditions, some of them hundreds of MB. Hits carry their `formats`, `ref.files()` lists every file with its
-kind and size, and `fetch` takes a size cap and a choice strategy:
+An IMSLP hit is a whole work page: full scores, parts, arrangements and MIDI renditions, some of them hundreds of MB. Hits carry their `formats`, `ref.files()` lists every file with its kind and size, and `fetch` takes a size cap and a choice strategy:
 
+<!-- wads-docs: skip opt-in sources, network or local corpora -->
 ```python
 from scoreseek.picks import smallest
 
@@ -94,10 +86,7 @@ ref.fetch(pick="PMLP01586-BH1826fsc.pdf")  # a filename from ref.files()
 ref.fetch(max_bytes=None)  # no cap
 ```
 
-When every candidate is over the cap, `fetch` raises `ScoreTooLargeError` naming
-the smallest ones. If a file IMSLP lists without a size turns out too big while
-downloading, the next choice is tried. Set source-wide defaults with
-`IMSLPSource(max_bytes=..., pick=...)`.
+When every candidate is over the cap, `fetch` raises `ScoreTooLargeError` naming the smallest ones. If a file IMSLP lists without a size turns out too big while downloading, the next choice is tried. Set source-wide defaults with `IMSLPSource(max_bytes=..., pick=...)`.
 
 `max_bytes` and `pick` work on **every** hit, so one loop serves mixed results:
 
@@ -106,17 +95,11 @@ for ref in scoreseek.search("waltz"):
     path = ref.fetch(max_bytes=5_000_000)  # ScoreTooLargeError if over
 ```
 
-Sources that download (IMSLP, OpenScore, The Session, WebMidi, Chordonomicon)
-default to a 50 MB cap; local corpora (folders, PDMX, Lakh, Kaggle) to none. IMSLP
-caps the download as it streams; other sources check the fetched file. Hits with
-several files (IMSLP, PDMX's MusicXML + MIDI) support `ref.files()` and
-`pick=<filename>`; on a one-file source a pick strategy has nothing to choose.
+Sources that download (IMSLP, OpenScore, The Session, WebMidi, Chordonomicon) default to a 50 MB cap; local corpora (folders, PDMX, Lakh, Kaggle) to none. IMSLP caps the download as it streams; other sources check the fetched file. Hits with several files (IMSLP, PDMX's MusicXML + MIDI) support `ref.files()` and `pick=<filename>`; on a one-file source a pick strategy has nothing to choose.
 
 ### Canonicalize a messy query (MusicBrainz)
 
-`normalize=True` resolves a fuzzy `"title [+ artist]"` to a canonical work via
-MusicBrainz *before* searching (adds a ~1 s network round-trip), and stamps the
-resolved MBID onto each hit:
+`normalize=True` resolves a fuzzy `"title [+ artist]"` to a canonical work via MusicBrainz *before* searching (adds a ~1 s network round-trip), and stamps the resolved MBID onto each hit:
 
 ```python
 hits = scoreseek.search("moonlight sonata beethovan", normalize=True)
@@ -124,19 +107,16 @@ hits = scoreseek.search("moonlight sonata beethovan", normalize=True)
 
 ### PDMX: a local public-domain corpus
 
-PDMX ships only as bulk tarballs, so `PDMXSource` searches a local extraction.
-Download once (index-only = 225 MB; + MusicXML = ~2.1 GB) from
-[Zenodo record 15571083](https://zenodo.org/records/15571083) and point the
-source at it:
+PDMX ships only as bulk tarballs, so `PDMXSource` searches a local extraction. Download once (index-only = 225 MB; + MusicXML = ~2.1 GB) from [Zenodo record 15571083](https://zenodo.org/records/15571083) and point the source at it:
 
+<!-- wads-docs: skip opt-in sources, network or local corpora -->
 ```python
 from scoreseek.sources import PDMXSource
 
 register_source(PDMXSource("~/pdmx"))  # dir with PDMX.csv (+ extracted mxl/, mid/)
 ```
 
-`search()` works with just `PDMX.csv`; `fetch()` needs the extracted `mxl/`/`mid/`
-trees and otherwise raises with the exact tarball URL to download.
+`search()` works with just `PDMX.csv`; `fetch()` needs the extracted `mxl/`/`mid/` trees and otherwise raises with the exact tarball URL to download.
 
 ### Write your own source
 
@@ -157,29 +137,17 @@ class MySource(Source):
         return "/path/to/score.musicxml"
 ```
 
-`ScoreRef.fetch` enforces `max_bytes` on the returned file for you (set a class
-attribute `max_bytes` for a default cap). Take `max_bytes` / `pick` in your own
-`fetch`, and implement `files(ref)`, when you can do better: cap a download while
-it streams, or choose among several files.
+`ScoreRef.fetch` enforces `max_bytes` on the returned file for you (set a class attribute `max_bytes` for a default cap). Take `max_bytes` / `pick` in your own `fetch`, and implement `files(ref)`, when you can do better: cap a download while it streams, or choose among several files.
 
 ## License tags
 
-`License` classifies each hit: `PUBLIC_DOMAIN`, `CC0`, `PERMISSIVE` (CC-BY/-SA,
-MIT, …), `NONCOMMERCIAL` (CC-BY-NC), `COPYRIGHTED`, `GRAY` (scrapes/unspecified),
-`UNKNOWN`.
+`License` classifies each hit: `PUBLIC_DOMAIN`, `CC0`, `PERMISSIVE` (CC-BY/-SA, MIT, …), `NONCOMMERCIAL` (CC-BY-NC), `COPYRIGHTED`, `GRAY` (scrapes/unspecified), `UNKNOWN`.
 
-`search(..., allow_copyrighted=False)` (the default) is **copyright-safe**: it
-returns the commercial-safe lanes (`PUBLIC_DOMAIN`/`CC0`/`PERMISSIVE`) plus
-`UNKNOWN` (unclassified provenance, e.g. your own local folders), and drops the
-**restricted lanes** — `COPYRIGHTED`, `GRAY`, and `NONCOMMERCIAL` (a known usage
-restriction). Pass `allow_copyrighted=True` to include them.
+`search(..., allow_copyrighted=False)` (the default) is **copyright-safe**: it returns the commercial-safe lanes (`PUBLIC_DOMAIN`/`CC0`/`PERMISSIVE`) plus `UNKNOWN` (unclassified provenance, e.g. your own local folders), and drops the **restricted lanes** — `COPYRIGHTED`, `GRAY`, and `NONCOMMERCIAL` (a known usage restriction). Pass `allow_copyrighted=True` to include them.
 
 ## Where it fits
 
-`scoreseek` is the **search** stage of a larger pipeline:
-**scoreseek** (find a score) → [`audiate`](https://github.com/thorwhalen/audiate)
-(render to audio) → [`arioso`](https://github.com/thorwhalen/arioso)
-(AI-enhance).
+`scoreseek` is the **search** stage of a larger pipeline: **scoreseek** (find a score) → [`audiate`](https://github.com/thorwhalen/audiate) (render to audio) → [`arioso`](https://github.com/thorwhalen/arioso) (AI-enhance).
 
 ## License
 
